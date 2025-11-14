@@ -1,18 +1,18 @@
 # Solamagic BT2000 for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub release](https://img.shields.io/github/release/DITT-ANVÄNDARNAMN/homeassistant-solamagic.svg)](https://github.com/DITT-ANVÄNDARNAMN/homeassistant-solamagic/releases)
+[![GitHub release](https://img.shields.io/github/release/Pocke01/homeassistant-solamagic.svg)](https://github.com/Pocke01/homeassistant-solamagic/releases)
 
 Home Assistant custom integration for Solamagic BT2000 Bluetooth infrared patio heaters.
 
 ## Features
 
-✅ **Climate Entity** - Control heater with preset modes (33%, 66%, 100%)
-✅ **Real-time Status** - Instant updates when changing power level
-✅ **Sensors** - Power level, RSSI signal strength, connection status
-✅ **Bluetooth Proxy Support** - Works with ESPHome Bluetooth proxies
-✅ **Auto-disconnect** - Automatically disconnects after 3 minutes to allow app access
-✅ **Services** - Advanced control via Home Assistant services
+- ✅ **Climate Entity** - Control heater with preset modes (33%, 66%, 100%)
+- ✅ **Real-time Status** - Instant updates when changing power level
+- ✅ **Sensors** - Power level, RSSI signal strength, connection status
+- ✅ **Bluetooth Proxy Support** - Works with ESPHome Bluetooth proxies
+- ✅ **Auto-disconnect** - Automatically disconnects after 3 minutes to allow app access
+- ✅ **Services** - Advanced control via Home Assistant services
 
 ## Supported Devices
 
@@ -28,7 +28,7 @@ Home Assistant custom integration for Solamagic BT2000 Bluetooth infrared patio 
 2. Go to "Integrations"
 3. Click the three dots in the top right
 4. Select "Custom repositories"
-5. Add this repository URL: `https://github.com/DITT-ANVÄNDARNAMN/homeassistant-solamagic`
+5. Add this repository URL: `https://github.com/Pocke01/homeassistant-solamagic`
 6. Category: "Integration"
 7. Click "Add"
 8. Search for "Solamagic" and install
@@ -138,4 +138,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-For issues and feature requests, please use the [GitHub issue tracker](https://github.com/DITT-ANVÄNDARNAMN/homeassistant-solamagic/issues).
+For issues and feature requests, please use the [GitHub issue tracker](https://github.com/Pocke01/homeassistant-solamagic/issues).
