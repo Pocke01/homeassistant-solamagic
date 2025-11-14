@@ -1,0 +1,175 @@
+# NOTE: entry_id is the Home Assistant *config entry id* for this device (not the MAC).
+write_handle:
+  name: Write raw to HANDLE 0x0028
+  description: Send a raw hex payload to Solamagic using the GATT handle 0x0028 (proxy-friendly).
+  fields:
+    entry_id:
+      name: Entry ID (config entry)
+      required: true
+      example: "01K92ZH66XTCCKNW0S1C22M02H"
+      selector:
+        text:
+      default: ""
+    payload_hex:
+      name: Payload (hex)
+      description: Examples – Off=00 64, 33%=01 21, 66%=01 42, 100%=01 64.
+      required: true
+      example: "01 21"
+      default: "01 21"
+      selector:
+        text:
+    response:
+      name: Write With Response
+      default: false
+      selector:
+        boolean:
+    repeat:
+      name: Repeat count
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
+          step: 1
+    delay_ms:
+      name: Delay between repeats (ms)
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 2000
+          mode: box
+          step: 10
+
+write_handle_any:
+  name: Write to any handle (decimal)
+  description: Send a raw hex payload to a specific GATT handle (decimal). Useful for CCCD writes (e.g., handle 41 for 0x0029, 51 for 0x0033).
+  fields:
+    entry_id:
+      name: Entry ID (config entry)
+      required: true
+      example: "01K92ZH66XTCCKNW0S1C22M02H"
+      selector:
+        text:
+      default: ""
+    handle:
+      name: Handle (decimal)
+      description: Decimal handle number. Examples – 41 = 0x0029 (command CCCD), 51 = 0x0033 (notify CCCD), 40 = 0x0028 (command).
+      required: true
+      example: 41
+      selector:
+        number:
+          min: 1
+          max: 65535
+          mode: box
+          step: 1
+    payload_hex:
+      name: Payload (hex)
+      required: true
+      example: "02 00"
+      default: "02 00"
+      selector:
+        text:
+    response:
+      name: Write With Response
+      default: true
+      selector:
+        boolean:
+    repeat:
+      name: Repeat count
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
+          step: 1
+    delay_ms:
+      name: Delay between repeats (ms)
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 2000
+          mode: box
+          step: 10
+
+write_uuid:
+  name: Write to characteristic by UUID
+  description: Send a raw hex payload to a characteristic UUID (e.g. F001/F002).
+  fields:
+    entry_id:
+      name: Entry ID (config entry)
+      required: true
+      example: "01K92ZH66XTCCKNW0S1C22M02H"
+      selector:
+        text:
+      default: ""
+    char_uuid:
+      name: Characteristic UUID
+      required: true
+      example: "0000f001-0000-1000-8000-00805f9b34fb"
+      default: "0000f001-0000-1000-8000-00805f9b34fb"
+      selector:
+        text:
+    payload_hex:
+      name: Payload (hex)
+      required: true
+      example: "01 21"
+      default: "01 21"
+      selector:
+        text:
+    response:
+      name: Write With Response
+      default: true
+      selector:
+        boolean:
+
+set_level:
+  name: Set heater level
+  description: |
+    Set Solamagic heater power level to 0%, 33%, 66%, or 100%.
+
+    Uses optimized two-phase protocol from Bluetooth sniffer analysis:
+    - OFF (0%): Sends 0x00 0x21 commands only
+    - ON (33%/66%/100%): Sends preparation (0x00 0xNN) then activation (0x01 0xNN) commands
+
+    Optimized for Bluetooth proxy with proper timing and command count.
+  fields:
+    entry_id:
+      name: Entry ID (config entry)
+      required: true
+      example: "01K92ZH66XTCCKNW0S1C22M02H"
+      selector:
+        text:
+      default: ""
+    level:
+      name: Level
+      description: Heater power level (0=OFF, 33/66/100=ON at specified percentage)
+      required: true
+      selector:
+        select:
+          options:
+            - label: "OFF (0%)"
+              value: "0"
+            - label: "Low (33%)"
+              value: "33"
+            - label: "Medium (66%)"
+              value: "66"
+            - label: "High (100%)"
+              value: "100"
+      example: "66"
+      default: "100"
+
+disconnect:
+  name: Disconnect
+  description: Disconnect from the device (useful during testing).
+  fields:
+    entry_id:
+      name: Entry ID (config entry)
+      required: true
+      example: "01K92ZH66XTCCKNW0S1C22M02H"
+      selector:
+        text:
+      default: ""

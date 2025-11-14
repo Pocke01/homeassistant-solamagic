@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "confirm": {
+        "title": "Lägg till värmeelement",
+        "description": "Vill du lägga till **{name}**?\n\n**Adress:** {address}\n**Signalstyrka:** {rssi}"
+      },
+      "user": {
+        "title": "Lägg till Solamagic manuellt",
+        "description": "Ange Bluetooth-adressen för din Solamagic BT2000.",
+        "data": {
+          "address": "Bluetooth-adress",
+          "name": "Namn"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Denna värmeelement är redan konfigurerad",
+      "already_configured_device": "En värmeelement med denna adress är redan tillagd"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solamagic-inställningar",
+        "data": {
+          "command_char": "Kommando-UUID",
+          "default_on_level": "Standardnivå",
+          "write_mode": "Skrivmetod"
+        }
+      }
+    }
+  }
+}

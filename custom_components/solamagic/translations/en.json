@@ -1,0 +1,58 @@
+{
+  "config": {
+    "step": {
+      "bluetooth": {
+        "description": "Solamagic BT2000 discovered via Bluetooth"
+      },
+      "confirm": {
+        "title": "Add Solamagic Heater",
+        "description": "Do you want to add **{name}**?\n\n**Address:** `{address}`\n**Signal strength:** {rssi}"
+      },
+      "user": {
+        "title": "Add Solamagic manually",
+        "description": "Enter the Bluetooth address of your Solamagic BT2000 heater.",
+        "data": {
+          "address": "Bluetooth address (MAC)",
+          "name": "Name (optional)",
+          "command_char": "Command UUID (advanced)",
+          "default_on_level": "Default power level",
+          "write_mode": "Write method (advanced)"
+        },
+        "data_description": {
+          "address": "Format: AA:BB:CC:DD:EE:FF or AA-BB-CC-DD-EE-FF",
+          "name": "A descriptive name, e.g. 'Patio Heater'",
+          "default_on_level": "Which power level to use when turning on",
+          "command_char": "Leave as default unless you know what this is",
+          "write_mode": "Use 'handle' for newer heaters, 'uuid' for older"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to heater",
+      "invalid_address": "Invalid Bluetooth address",
+      "unknown": "An unexpected error occurred"
+    },
+    "abort": {
+      "already_configured": "This heater is already configured",
+      "already_configured_device": "A heater with this address is already added"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solamagic Options",
+        "description": "Configure advanced settings for your heater",
+        "data": {
+          "command_char": "Command UUID",
+          "default_on_level": "Default power level",
+          "write_mode": "Write method"
+        },
+        "data_description": {
+          "command_char": "UUID for sending commands (only change if you have issues)",
+          "default_on_level": "Which power level is used when turning on",
+          "write_mode": "Method for sending BLE commands (handle = faster, uuid = compatible)"
+        }
+      }
+    }
+  }
+}

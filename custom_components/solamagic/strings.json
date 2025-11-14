@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "confirm": {
+        "title": "Add heater",
+        "description": "Do you want to add **{name}**?\n\n**Address:** {address}\n**Signal strength:** {rssi}"
+      },
+      "user": {
+        "title": "Add Solamagic manually",
+        "description": "Enter the Bluetooth address of your Solamagic BT2000.",
+        "data": {
+          "address": "Bluetooth address",
+          "name": "Name"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This heater is already configured",
+      "already_configured_device": "A heater with this address is already added"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solamagic Options",
+        "data": {
+          "command_char": "Command UUID",
+          "default_on_level": "Default level",
+          "write_mode": "Write method"
+        }
+      }
+    }
+  }
+}
