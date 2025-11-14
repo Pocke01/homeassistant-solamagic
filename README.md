@@ -129,8 +129,13 @@ This integration uses reverse-engineered Bluetooth protocol from the xHeatlink a
 
 ## Credits
 
-- Protocol analysis based on Bluetooth sniffing of xHeatlink app
+- Protocol analysis based on Bluetooth sniffing of the X-Heatlink app
 - Inspired by reverse engineering work on similar BLE devices
+- Big thanks to ChatGPT and Claude.ai for my endless questions and sugenstions :)
+
+## Disclaimer
+
+I do not know python or how the bluethoot protocol works. But i know how to solve problems :)
 
 ## License
 
