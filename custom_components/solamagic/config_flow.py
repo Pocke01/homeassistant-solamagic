@@ -24,6 +24,24 @@ DEFAULTS = {
 }
 
 
+def _format_device_name(address: str) -> str:
+    """
+    Skapa device name från MAC-adress.
+    Samma logik som get_device_info() i const.py.
+    
+    Args:
+        address: MAC-adress (ex: "D0:65:4C:8B:6C:36")
+    
+    Returns:
+        Formaterat namn (ex: "BT2000-8B6C36")
+    """
+    if address:
+        # Ta sista 6 tecken av MAC (ex: "8B6C36")
+        short_mac = address.replace(":", "")[-6:].upper()
+        return f"BT2000-{short_mac}"
+    return "Solamagic BT2000"
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Solamagic."""
 
@@ -38,8 +56,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle Bluetooth discovery."""
         address = discovery_info.address
-        name = discovery_info.name or "Solamagic BT2000"
         rssi = getattr(discovery_info, "rssi", None)
+        
+        # Skapa snyggt namn baserat på MAC
+        device_name = _format_device_name(address)
 
         # Set unique ID to prevent duplicates
         await self.async_set_unique_id(address)
@@ -50,7 +70,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Set placeholders for UI
         self.context["title_placeholders"] = {
-            "name": name,
+            "name": device_name,
             "address": address,
             "rssi": f"{rssi} dBm" if rssi else "Unknown",
         }
@@ -67,10 +87,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             # Create entry with discovered info
-            title = f"{placeholders.get('name', 'Solamagic')}"
+            # Använd device name från placeholders (ex: "BT2000-8B6C36")
+            title = placeholders.get("name", "Solamagic BT2000")
             data = {
                 CONF_ADDRESS: self._discovery_info.address,
-                CONF_NAME: placeholders.get("name", "Solamagic"),
+                CONF_NAME: title,
                 **DEFAULTS,
             }
             return self.async_create_entry(title=title, data=data)
@@ -96,10 +117,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             # Create entry
-            title = user_input.get(CONF_NAME) or f"Solamagic ({address[-8:]})"
+            # Om användaren angav ett namn, använd det, annars skapa från MAC
+            if user_input.get(CONF_NAME) and user_input.get(CONF_NAME) != "Solamagic":
+                title = user_input.get(CONF_NAME)
+            else:
+                title = _format_device_name(address)
+            
             data = {
                 CONF_ADDRESS: address,
-                CONF_NAME: user_input.get(CONF_NAME, "Solamagic"),
+                CONF_NAME: title,
                 CONF_COMMAND_CHAR: user_input.get(CONF_COMMAND_CHAR, CHAR_CMD_F001),
                 CONF_DEFAULT_ON_LEVEL: user_input.get(CONF_DEFAULT_ON_LEVEL, 100),
                 CONF_WRITE_MODE: user_input.get(CONF_WRITE_MODE, "handle"),

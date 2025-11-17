@@ -1,7 +1,7 @@
 {
   "domain": "solamagic",
   "name": "Solamagic",
-  "version": "0.3.22",
+  "version": "0.3.24",
   "documentation": "https://example.invalid/solamagic",
   "codeowners": [
     "@you"
