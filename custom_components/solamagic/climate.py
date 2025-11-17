@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,21 +79,21 @@ class SolamagicClimate(ClimateEntity):
     @property
     def device_info(self):
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self._address or self.unique_id)},
-            "manufacturer": "Solamagic",
-            "name": self._attr_name,
-            "model": "BT2000",
-            "suggested_area": "Outdoor",
-        }
+        return get_device_info(self._address, self._attr_name)
 
     @property
     def extra_state_attributes(self):
         """Return extra state attributes."""
-        return {
+        attrs = {
             "power_level": self._current_level,
             "power_level_pct": f"{self._current_level}%",
         }
+        
+        # Lägg till MAC-adress som attribut
+        if self._address:
+            attrs["mac_address"] = self._address
+        
+        return attrs
 
     @callback
     def _handle_status_update(self, level: int) -> None:

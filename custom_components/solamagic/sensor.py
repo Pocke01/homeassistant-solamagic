@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.entity import EntityCategory
 
-from .const import DOMAIN
+from .const import DOMAIN, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,12 +72,7 @@ class SolamagicPowerSensor(SensorEntity):
     @property
     def device_info(self):
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self._address or self.unique_id)},
-            "manufacturer": "Solamagic",
-            "name": self._attr_name.replace(" Power Level", ""),
-            "model": "BT2000",
-        }
+        return get_device_info(self._address)
 
     @property
     def extra_state_attributes(self):
@@ -220,20 +215,18 @@ class SolamagicRSSISensor(SensorEntity):
     @property
     def device_info(self):
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self._address or self.unique_id)},
-        }
+        return get_device_info(self._address)
 
     async def async_update(self) -> None:
         """Update RSSI from BLE device via Home Assistant bluetooth."""
         try:
             from homeassistant.components import bluetooth
-
+            
             # Hämta senaste service info från bluetooth integration
             service_info = bluetooth.async_last_service_info(
                 self.hass, self._address, connectable=False
             )
-
+            
             if service_info and service_info.rssi is not None:
                 self._attr_native_value = service_info.rssi
                 _LOGGER.debug(f"RSSI updated: {service_info.rssi} dBm from {service_info.name}")
@@ -250,7 +243,7 @@ class SolamagicRSSISensor(SensorEntity):
                         _LOGGER.debug(f"RSSI updated from device: {device.rssi} dBm")
                 else:
                     _LOGGER.debug(f"No device found for {self._address}")
-
+                
         except Exception as e:
             _LOGGER.warning(f"Could not get RSSI: {e}", exc_info=True)
 
@@ -275,15 +268,13 @@ class SolamagicConnectionSensor(SensorEntity):
     @property
     def device_info(self):
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self._address or self.unique_id)},
-        }
+        return get_device_info(self._address)
 
     @property
     def extra_state_attributes(self):
         """Return extra attributes."""
         attrs = {"address": self._address}
-
+        
         # Kontrollera om vi har en aktiv Bleak client
         try:
             if hasattr(self._client._ble, '_client') and self._client._ble._client:
@@ -295,19 +286,19 @@ class SolamagicConnectionSensor(SensorEntity):
         except Exception as e:
             _LOGGER.debug(f"Could not get client info: {e}")
             attrs["error"] = str(e)
-
+            
         return attrs
 
     async def async_added_to_hass(self) -> None:
         """Set up connection monitoring when added to hass."""
         await super().async_added_to_hass()
-
+        
         # Starta en polling-loop som kollar varje sekund
         async def check_connection(now=None):
             """Check connection status frequently."""
             try:
                 old_value = self._attr_native_value
-
+                
                 if hasattr(self._client._ble, '_client') and self._client._ble._client:
                     if self._client._ble._client.is_connected:
                         self._attr_native_value = "connected"
@@ -315,22 +306,22 @@ class SolamagicConnectionSensor(SensorEntity):
                         self._attr_native_value = "disconnected"
                 else:
                     self._attr_native_value = "disconnected"
-
+                
                 # Uppdatera bara om status ändrats
                 if old_value != self._attr_native_value:
                     _LOGGER.info(f"Connection status changed: {old_value} → {self._attr_native_value}")
                     self.async_write_ha_state()
-
+                    
             except Exception as e:
                 _LOGGER.debug(f"Could not check connection status: {e}")
-
+        
         # Kör check varje sekund
         self._remove_listener = async_track_time_interval(
             self.hass,
             check_connection,
             timedelta(seconds=1)
         )
-
+        
         # Kör en första check direkt
         await check_connection()
 

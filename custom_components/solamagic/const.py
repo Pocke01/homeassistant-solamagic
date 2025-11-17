@@ -42,3 +42,40 @@ CONF_NAME = "name"
 CONF_COMMAND_CHAR = "command_characteristic"
 CONF_DEFAULT_ON_LEVEL = "default_on_level"
 CONF_WRITE_MODE = "write_mode"  # "handle" (rekommenderat via proxy) eller "uuid"
+
+
+def get_device_info(address: str, entry_title: str = None) -> dict:
+    """
+    Skapa enhetlig device_info för alla entities.
+    
+    Detta säkerställer att alla entities för samma enhet
+    använder samma device information.
+    
+    Args:
+        address: MAC-adress för enheten
+        entry_title: Titel från config entry (om tillgänglig)
+    
+    Returns:
+        Dict med device information
+    """
+    # Skapa ett bättre device name baserat på MAC-adress
+    if address:
+        # Ta sista 6 tecken av MAC (ex: "8B6C36")
+        short_mac = address.replace(":", "")[-6:].upper()
+        device_name = f"BT2000-{short_mac}"
+    else:
+        device_name = entry_title or "Solamagic BT2000"
+    
+    device_info = {
+        "identifiers": {(DOMAIN, address)},
+        "manufacturer": "Solamagic",
+        "name": device_name,
+        "model": "BT2000",
+        "suggested_area": "Outdoor",
+    }
+    
+    # Lägg till MAC som hardware version om tillgänglig
+    if address:
+        device_info["hw_version"] = address
+    
+    return device_info
