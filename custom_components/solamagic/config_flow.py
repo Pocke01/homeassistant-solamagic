@@ -26,17 +26,17 @@ DEFAULTS = {
 
 def _format_device_name(address: str) -> str:
     """
-    Skapa device name från MAC-adress.
-    Samma logik som get_device_info() i const.py.
-    
+    Create device name from MAC address.
+    Same logic as get_device_info() in const.py.
+
     Args:
-        address: MAC-adress (ex: "D0:65:4C:8B:6C:36")
-    
+        address: MAC address (e.g., "D0:65:4C:8B:6C:36")
+
     Returns:
-        Formaterat namn (ex: "BT2000-8B6C36")
+        Formatted name (e.g., "BT2000-8B6C36")
     """
     if address:
-        # Ta sista 6 tecken av MAC (ex: "8B6C36")
+        # Take last 6 characters of MAC (e.g., "8B6C36")
         short_mac = address.replace(":", "")[-6:].upper()
         return f"BT2000-{short_mac}"
     return "Solamagic BT2000"
@@ -54,11 +54,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> FlowResult:
-        """Handle Bluetooth discovery."""
+        """
+        Handle Bluetooth discovery.
+
+        Called when a Solamagic heater is discovered via Bluetooth.
+
+        Args:
+            discovery_info: Bluetooth discovery information
+
+        Returns:
+            Flow result leading to confirmation step
+        """
         address = discovery_info.address
         rssi = getattr(discovery_info, "rssi", None)
-        
-        # Skapa snyggt namn baserat på MAC
+
+        # Create nice name based on MAC
         device_name = _format_device_name(address)
 
         # Set unique ID to prevent duplicates
@@ -80,14 +90,22 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Confirm setup of discovered device."""
+        """
+        Confirm setup of discovered device.
+
+        Args:
+            user_input: User confirmation input (None on first call)
+
+        Returns:
+            Flow result creating the config entry
+        """
         assert self._discovery_info is not None
 
         placeholders = self.context.get("title_placeholders", {})
 
         if user_input is not None:
             # Create entry with discovered info
-            # Använd device name från placeholders (ex: "BT2000-8B6C36")
+            # Use device name from placeholders (e.g., "BT2000-8B6C36")
             title = placeholders.get("name", "Solamagic BT2000")
             data = {
                 CONF_ADDRESS: self._discovery_info.address,
@@ -105,7 +123,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle manual setup."""
+        """
+        Handle manual setup.
+
+        Args:
+            user_input: User-provided configuration (None on first call)
+
+        Returns:
+            Flow result either showing form or creating entry
+        """
         errors = {}
 
         if user_input is not None:
@@ -117,29 +143,44 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             # Create entry
-            # Om användaren angav ett namn, använd det, annars skapa från MAC
-            if user_input.get(CONF_NAME) and user_input.get(CONF_NAME) != "Solamagic":
+            # If user specified a name, use it; otherwise create from MAC
+            if (
+                user_input.get(CONF_NAME)
+                and user_input.get(CONF_NAME) != "Solamagic"
+            ):
                 title = user_input.get(CONF_NAME)
             else:
                 title = _format_device_name(address)
-            
+
             data = {
                 CONF_ADDRESS: address,
                 CONF_NAME: title,
-                CONF_COMMAND_CHAR: user_input.get(CONF_COMMAND_CHAR, CHAR_CMD_F001),
-                CONF_DEFAULT_ON_LEVEL: user_input.get(CONF_DEFAULT_ON_LEVEL, 100),
+                CONF_COMMAND_CHAR: user_input.get(
+                    CONF_COMMAND_CHAR, CHAR_CMD_F001
+                ),
+                CONF_DEFAULT_ON_LEVEL: user_input.get(
+                    CONF_DEFAULT_ON_LEVEL, 100
+                ),
                 CONF_WRITE_MODE: user_input.get(CONF_WRITE_MODE, "handle"),
             }
             return self.async_create_entry(title=title, data=data)
 
         # Show manual config form
-        schema = vol.Schema({
-            vol.Required(CONF_ADDRESS): str,
-            vol.Optional(CONF_NAME, default="Solamagic"): str,
-            vol.Optional(CONF_COMMAND_CHAR, default=CHAR_CMD_F001): str,
-            vol.Optional(CONF_DEFAULT_ON_LEVEL, default=100): vol.In([33, 66, 100]),
-            vol.Optional(CONF_WRITE_MODE, default="handle"): vol.In(["handle", "uuid"]),
-        })
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_ADDRESS): str,
+                vol.Optional(CONF_NAME, default="Solamagic"): str,
+                vol.Optional(
+                    CONF_COMMAND_CHAR, default=CHAR_CMD_F001
+                ): str,
+                vol.Optional(CONF_DEFAULT_ON_LEVEL, default=100): vol.In(
+                    [33, 66, 100]
+                ),
+                vol.Optional(CONF_WRITE_MODE, default="handle"): vol.In(
+                    ["handle", "uuid"]
+                ),
+            }
+        )
 
         return self.async_show_form(
             step_id="user",
@@ -152,13 +193,26 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for Solamagic."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
+        """
+        Initialize options flow.
+
+        Args:
+            config_entry: The config entry being modified
+        """
         self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage the options."""
+        """
+        Manage the options.
+
+        Args:
+            user_input: Updated options (None on first call)
+
+        Returns:
+            Flow result showing form or creating entry
+        """
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
@@ -166,29 +220,30 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         data = self.config_entry.data
         options = self.config_entry.options
 
-        schema = vol.Schema({
-            vol.Optional(
-                CONF_COMMAND_CHAR,
-                default=options.get(
+        schema = vol.Schema(
+            {
+                vol.Optional(
                     CONF_COMMAND_CHAR,
-                    data.get(CONF_COMMAND_CHAR, CHAR_CMD_F001)
-                )
-            ): str,
-            vol.Optional(
-                CONF_DEFAULT_ON_LEVEL,
-                default=options.get(
+                    default=options.get(
+                        CONF_COMMAND_CHAR,
+                        data.get(CONF_COMMAND_CHAR, CHAR_CMD_F001),
+                    ),
+                ): str,
+                vol.Optional(
                     CONF_DEFAULT_ON_LEVEL,
-                    data.get(CONF_DEFAULT_ON_LEVEL, 100)
-                )
-            ): vol.In([33, 66, 100]),
-            vol.Optional(
-                CONF_WRITE_MODE,
-                default=options.get(
+                    default=options.get(
+                        CONF_DEFAULT_ON_LEVEL,
+                        data.get(CONF_DEFAULT_ON_LEVEL, 100),
+                    ),
+                ): vol.In([33, 66, 100]),
+                vol.Optional(
                     CONF_WRITE_MODE,
-                    data.get(CONF_WRITE_MODE, "handle")
-                )
-            ): vol.In(["handle", "uuid"]),
-        })
+                    default=options.get(
+                        CONF_WRITE_MODE, data.get(CONF_WRITE_MODE, "handle")
+                    ),
+                ): vol.In(["handle", "uuid"]),
+            }
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -197,7 +252,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
 
 async def async_get_options_flow(
-    config_entry: config_entries.ConfigEntry
+    config_entry: config_entries.ConfigEntry,
 ) -> OptionsFlowHandler:
-    """Get the options flow handler."""
+    """
+    Get the options flow handler.
+
+    Args:
+        config_entry: The config entry to get options flow for
+
+    Returns:
+        Options flow handler instance
+    """
     return OptionsFlowHandler(config_entry)

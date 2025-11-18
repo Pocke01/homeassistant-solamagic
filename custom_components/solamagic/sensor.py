@@ -1,6 +1,7 @@
 """Solamagic Sensors - Power Level, RSSI, Connection Status."""
 from __future__ import annotations
-import asyncio, logging
+import asyncio
+import logging
 from datetime import timedelta
 
 from homeassistant.components.sensor import (
@@ -8,7 +9,10 @@ from homeassistant.components.sensor import (
     SensorStateClass,
     SensorDeviceClass,
 )
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -19,15 +23,16 @@ from .const import DOMAIN, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
-# Polling-intervall
+# Polling interval for status updates
 POLL_INTERVAL = timedelta(minutes=1)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Solamagic sensors."""
+    """Set up Solamagic sensors from config entry."""
     client = hass.data[DOMAIN][entry.entry_id]
     name = entry.title or entry.data.get("address") or "Solamagic"
 
@@ -41,7 +46,12 @@ async def async_setup_entry(
 
 
 class SolamagicPowerSensor(SensorEntity):
-    """Sensor som läser effektnivå från värmaren."""
+    """
+    Sensor that reads power level from the heater.
+
+    This sensor polls the heater periodically and also receives real-time
+    updates via Bluetooth notifications.
+    """
 
     _attr_has_entity_name = True
     _attr_native_unit_of_measurement = PERCENTAGE
@@ -50,7 +60,14 @@ class SolamagicPowerSensor(SensorEntity):
     _attr_suggested_display_precision = 0
 
     def __init__(self, client, name: str, unique_id: str) -> None:
-        """Initialize the power sensor."""
+        """
+        Initialize the power sensor.
+
+        Args:
+            client: SolamagicClient instance
+            name: Entity name
+            unique_id: Unique identifier
+        """
         self._client = client
         self._attr_name = "Power Level"
         self._attr_unique_id = f"{unique_id}-power"
@@ -61,22 +78,23 @@ class SolamagicPowerSensor(SensorEntity):
         self._polling = False
         self._cancel_poll = None
 
-        # Spara referens till climate callback
+        # Save reference to climate callback
         self._climate_callback = None
 
         _LOGGER.debug(
             "Initialized power sensor: %s (poll interval=%s)",
-            name, POLL_INTERVAL
+            name,
+            POLL_INTERVAL,
         )
 
     @property
     def device_info(self):
-        """Return device information."""
+        """Return device information for device registry."""
         return get_device_info(self._address)
 
     @property
     def extra_state_attributes(self):
-        """Return extra state attributes."""
+        """Return additional state attributes."""
         return {
             "poll_interval_minutes": POLL_INTERVAL.total_seconds() / 60,
             "last_poll": getattr(self, "_last_poll", "Never"),
@@ -86,29 +104,31 @@ class SolamagicPowerSensor(SensorEntity):
         """Start polling when added to hass."""
         await super().async_added_to_hass()
 
-        # Spara climate callback och kedja vår egen
+        # Save climate callback and chain our own
         old_callback = self._client._ble._status_callback
         self._climate_callback = old_callback
 
         def combined_callback(level: int):
+            """Combined callback that calls both sensor and climate."""
             self._handle_status_update(level)
             if old_callback:
                 try:
                     old_callback(level)
                 except Exception as e:
-                    _LOGGER.error(f"Old callback error: {e}")
+                    _LOGGER.error("Old callback error: %s", e)
 
         self._client._ble.set_status_callback(combined_callback)
 
-        # Starta periodisk polling
+        # Start periodic polling
         self._cancel_poll = async_track_time_interval(
             self.hass,
             self._async_poll_status,
-            POLL_INTERVAL
+            POLL_INTERVAL,
         )
 
-        # Fördröjd första polling
+        # Delayed first poll to avoid startup congestion
         async def delayed_first_poll():
+            """Wait before first poll."""
             await asyncio.sleep(10)
             await self._async_poll_status(None)
 
@@ -122,21 +142,37 @@ class SolamagicPowerSensor(SensorEntity):
 
     @callback
     def _handle_status_update(self, level: int) -> None:
-        """Hantera realtids-uppdatering från värmaren."""
+        """
+        Handle real-time status update from heater.
+
+        Args:
+            level: Power level in percent (0, 33, 66, 100)
+        """
         _LOGGER.debug("Real-time status update: %d%%", level)
         self._attr_native_value = level
         self.async_write_ha_state()
 
     async def _async_poll_status(self, now=None) -> None:
-        """Periodisk polling av status."""
+        """
+        Periodic polling of status.
+
+        This connects to the heater, reads status, and disconnects.
+        Allows the mobile app to connect when we're not actively using HA.
+
+        Args:
+            now: Current time (from async_track_time_interval)
+        """
         if self._polling:
             _LOGGER.debug("Poll already in progress, skipping")
             return
 
-        # Skippa polling om anslutningen redan är aktiv
-        if hasattr(self._client._ble, '_client') and self._client._ble._client:
+        # Skip polling if connection is already active
+        if hasattr(self._client._ble, "_client") and self._client._ble._client:
             if self._client._ble._client.is_connected:
-                _LOGGER.debug("Already connected, skipping poll (will get real-time updates)")
+                _LOGGER.debug(
+                    "Already connected, skipping poll "
+                    "(will get real-time updates)"
+                )
                 return
 
         self._polling = True
@@ -147,16 +183,19 @@ class SolamagicPowerSensor(SensorEntity):
             received_status = None
 
             def poll_callback(level: int):
+                """Temporary callback to capture polled status."""
                 nonlocal received_status
                 received_status = level
-                _LOGGER.debug(f"Polled status: {level}%")
+                _LOGGER.debug("Polled status: %d%%", level)
 
+            # Temporarily replace callback
             old_callback = self._client._ble._status_callback
             self._client._ble.set_status_callback(poll_callback)
 
             try:
                 await self._client._ensure_initialized()
 
+                # Wait up to 3 seconds for status
                 for _ in range(30):
                     if received_status is not None:
                         break
@@ -165,22 +204,37 @@ class SolamagicPowerSensor(SensorEntity):
                 if received_status is not None:
                     self._attr_native_value = received_status
                     self._last_poll = self.hass.loop.time()
-                    _LOGGER.info(f"✓ Polled status: {received_status}%")
+                    _LOGGER.info("✓ Polled status: %d%%", received_status)
 
-                    # Notifiera climate
-                    if hasattr(self, '_climate_callback') and self._climate_callback:
+                    # Notify climate entity
+                    if (
+                        hasattr(self, "_climate_callback")
+                        and self._climate_callback
+                    ):
                         try:
-                            _LOGGER.debug(f"Calling climate callback with: {received_status}%")
+                            _LOGGER.debug(
+                                "Calling climate callback with: %d%%",
+                                received_status,
+                            )
                             self._climate_callback(received_status)
-                            _LOGGER.debug(f"✓ Notified climate entity: {received_status}%")
+                            _LOGGER.debug(
+                                "✓ Notified climate entity: %d%%",
+                                received_status,
+                            )
                         except Exception as e:
-                            _LOGGER.error(f"Climate callback failed: {e}", exc_info=True)
+                            _LOGGER.error(
+                                "Climate callback failed: %s", e, exc_info=True
+                            )
                 else:
-                    _LOGGER.warning("No status received during poll (timeout)")
+                    _LOGGER.warning(
+                        "No status received during poll (timeout)"
+                    )
 
             finally:
+                # Restore original callback
                 self._client._ble.set_status_callback(old_callback)
 
+            # Short delay before disconnect
             await asyncio.sleep(0.5)
             await self._client.disconnect()
             _LOGGER.debug("Disconnected after poll (allows app access)")
@@ -188,14 +242,19 @@ class SolamagicPowerSensor(SensorEntity):
             self.async_write_ha_state()
 
         except Exception as e:
-            _LOGGER.error(f"Status polling failed: {e}")
+            _LOGGER.error("Status polling failed: %s", e)
 
         finally:
             self._polling = False
 
 
 class SolamagicRSSISensor(SensorEntity):
-    """Sensor som visar RSSI (signalstyrka)."""
+    """
+    Sensor that shows RSSI (signal strength).
+
+    Uses Home Assistant's Bluetooth integration to get signal strength
+    without needing an active connection.
+    """
 
     _attr_has_entity_name = True
     _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
@@ -205,7 +264,14 @@ class SolamagicRSSISensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, client, name: str, unique_id: str) -> None:
-        """Initialize the RSSI sensor."""
+        """
+        Initialize the RSSI sensor.
+
+        Args:
+            client: SolamagicClient instance
+            name: Entity name
+            unique_id: Unique identifier
+        """
         self._client = client
         self._attr_name = "Signal Strength"
         self._attr_unique_id = f"{unique_id}-rssi"
@@ -214,50 +280,78 @@ class SolamagicRSSISensor(SensorEntity):
 
     @property
     def device_info(self):
-        """Return device information."""
+        """Return device information for device registry."""
         return get_device_info(self._address)
 
     async def async_update(self) -> None:
-        """Update RSSI from BLE device via Home Assistant bluetooth."""
+        """
+        Update RSSI from BLE device via Home Assistant bluetooth.
+
+        This reads signal strength from the last Bluetooth advertisement,
+        so it works even when the device is not connected.
+        """
         try:
             from homeassistant.components import bluetooth
-            
-            # Hämta senaste service info från bluetooth integration
+
+            # Get latest service info from bluetooth integration
             service_info = bluetooth.async_last_service_info(
                 self.hass, self._address, connectable=False
             )
-            
+
             if service_info and service_info.rssi is not None:
                 self._attr_native_value = service_info.rssi
-                _LOGGER.debug(f"RSSI updated: {service_info.rssi} dBm from {service_info.name}")
+                _LOGGER.debug(
+                    "RSSI updated: %d dBm from %s",
+                    service_info.rssi,
+                    service_info.name,
+                )
             else:
-                _LOGGER.debug(f"No RSSI service info available for {self._address}")
-                # Försök alternativ metod
+                _LOGGER.debug(
+                    "No RSSI service info available for %s", self._address
+                )
+                # Try alternative method
                 device = bluetooth.async_ble_device_from_address(
                     self.hass, self._address, connectable=False
                 )
                 if device:
-                    _LOGGER.debug(f"Found device via address lookup: {device.name}, RSSI: {getattr(device, 'rssi', 'N/A')}")
-                    if hasattr(device, 'rssi') and device.rssi is not None:
+                    _LOGGER.debug(
+                        "Found device via address lookup: %s, RSSI: %s",
+                        device.name,
+                        getattr(device, "rssi", "N/A"),
+                    )
+                    if hasattr(device, "rssi") and device.rssi is not None:
                         self._attr_native_value = device.rssi
-                        _LOGGER.debug(f"RSSI updated from device: {device.rssi} dBm")
+                        _LOGGER.debug(
+                            "RSSI updated from device: %d dBm", device.rssi
+                        )
                 else:
-                    _LOGGER.debug(f"No device found for {self._address}")
-                
+                    _LOGGER.debug("No device found for %s", self._address)
+
         except Exception as e:
-            _LOGGER.warning(f"Could not get RSSI: {e}", exc_info=True)
+            _LOGGER.warning("Could not get RSSI: %s", e, exc_info=True)
 
 
 class SolamagicConnectionSensor(SensorEntity):
-    """Sensor som visar anslutningsstatus."""
+    """
+    Sensor that shows connection status.
+
+    Monitors whether the Bluetooth connection is active.
+    """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:bluetooth"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_should_poll = False  # Vi uppdaterar via callbacks istället
+    _attr_should_poll = False  # We update via callbacks instead
 
     def __init__(self, client, name: str, unique_id: str) -> None:
-        """Initialize the connection sensor."""
+        """
+        Initialize the connection sensor.
+
+        Args:
+            client: SolamagicClient instance
+            name: Entity name
+            unique_id: Unique identifier
+        """
         self._client = client
         self._attr_name = "Connection Status"
         self._attr_unique_id = f"{unique_id}-connection"
@@ -267,62 +361,72 @@ class SolamagicConnectionSensor(SensorEntity):
 
     @property
     def device_info(self):
-        """Return device information."""
+        """Return device information for device registry."""
         return get_device_info(self._address)
 
     @property
     def extra_state_attributes(self):
-        """Return extra attributes."""
+        """Return additional state attributes."""
         attrs = {"address": self._address}
-        
-        # Kontrollera om vi har en aktiv Bleak client
+
+        # Check if we have an active Bleak client
         try:
-            if hasattr(self._client._ble, '_client') and self._client._ble._client:
+            if (
+                hasattr(self._client._ble, "_client")
+                and self._client._ble._client
+            ):
                 attrs["has_client"] = True
                 attrs["is_connected"] = self._client._ble._client.is_connected
             else:
                 attrs["has_client"] = False
                 attrs["is_connected"] = False
         except Exception as e:
-            _LOGGER.debug(f"Could not get client info: {e}")
+            _LOGGER.debug("Could not get client info: %s", e)
             attrs["error"] = str(e)
-            
+
         return attrs
 
     async def async_added_to_hass(self) -> None:
         """Set up connection monitoring when added to hass."""
         await super().async_added_to_hass()
-        
-        # Starta en polling-loop som kollar varje sekund
+
+        # Start a polling loop that checks every second
         async def check_connection(now=None):
             """Check connection status frequently."""
             try:
                 old_value = self._attr_native_value
-                
-                if hasattr(self._client._ble, '_client') and self._client._ble._client:
+
+                if (
+                    hasattr(self._client._ble, "_client")
+                    and self._client._ble._client
+                ):
                     if self._client._ble._client.is_connected:
                         self._attr_native_value = "connected"
                     else:
                         self._attr_native_value = "disconnected"
                 else:
                     self._attr_native_value = "disconnected"
-                
-                # Uppdatera bara om status ändrats
+
+                # Only update if status changed
                 if old_value != self._attr_native_value:
-                    _LOGGER.info(f"Connection status changed: {old_value} → {self._attr_native_value}")
+                    _LOGGER.info(
+                        "Connection status changed: %s → %s",
+                        old_value,
+                        self._attr_native_value,
+                    )
                     self.async_write_ha_state()
-                    
+
             except Exception as e:
-                _LOGGER.debug(f"Could not check connection status: {e}")
-        
-        # Kör check varje sekund
+                _LOGGER.debug("Could not check connection status: %s", e)
+
+        # Run check every second
         self._remove_listener = async_track_time_interval(
             self.hass,
             check_connection,
-            timedelta(seconds=1)
+            timedelta(seconds=1),
         )
-        
-        # Kör en första check direkt
+
+        # Run first check immediately
         await check_connection()
 
     async def async_will_remove_from_hass(self) -> None:
