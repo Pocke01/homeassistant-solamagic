@@ -34,6 +34,13 @@ def _get_entry_id_from_call(
     Extract entry_id from service call.
     
     Supports both direct entry_id and device_id lookup.
+    
+    Args:
+        hass: Home Assistant instance
+        call: Service call containing either entry_id or device_id
+    
+    Returns:
+        Config entry ID if found, None otherwise
     """
     # Direct entry_id provided
     entry_id = call.data.get("entry_id")
