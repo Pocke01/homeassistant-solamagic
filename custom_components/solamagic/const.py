@@ -37,6 +37,19 @@ CMD_ON_100_OLD = bytes([0x01, 0x64])
 CMD_LEVEL_33 = CMD_ON_33
 CMD_LEVEL_66 = CMD_ON_66
 
+# Timing constants (from protocol analysis and testing)
+# These values were determined through Bluetooth sniffing and testing
+INIT_DELAY_MS = 50          # Delay after initialization (ms)
+CCCD_ENABLE_DELAY_MS = 50   # Delay between CCCD enables (ms)
+CMD_CONFIRMATION_DELAY_MS = 200  # Wait for command confirmation (ms)
+CMD_OFF_REPEAT_COUNT = 21   # Number of OFF commands to send (from sniffer)
+CMD_OFF_DELAY_MS = 16       # Delay between OFF commands (ms)
+
+# Status parsing constants (from protocol analysis)
+STATUS_MIN_LENGTH = 17      # Minimum length of status data
+STATUS_POWER_BYTE = 15      # Byte index for power status (0=off, 1=on)
+STATUS_LEVEL_BYTE = 16      # Byte index for level (0x21=33, 0x42=66, 0x64=100)
+
 # Config keys
 CONF_ADDRESS = "address"
 CONF_NAME = "name"
