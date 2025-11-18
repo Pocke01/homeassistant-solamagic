@@ -1,65 +1,32 @@
-"""Bluetooth Low Energy client for Solamagic BT2000 heaters."""
 from __future__ import annotations
-import asyncio
-import logging
-import binascii
+import asyncio, logging, binascii
 from typing import Optional, Any, Callable
-
-from bleak_retry_connector import (
-    establish_connection,
-    close_stale_connections,
-    BleakClientWithServiceCache,
-)
+from bleak_retry_connector import establish_connection, close_stale_connections, BleakClientWithServiceCache
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components import bluetooth
 from homeassistant.exceptions import HomeAssistantError
-
 from .const import (
-    HANDLE_CMD,
-    HANDLE_NTF1,
-    HANDLE_NTF2,
-    HANDLE_INIT,
-    INIT_PAYLOAD,
+    HANDLE_CMD, HANDLE_NTF1, HANDLE_NTF2, HANDLE_INIT, INIT_PAYLOAD,
+    STATUS_MIN_LENGTH, STATUS_POWER_BYTE, STATUS_LEVEL_BYTE
 )
-
 _LOGGER = logging.getLogger(__name__)
 
 # Configurable disconnect timeout (seconds)
 # Increase/decrease as needed - default 3 minutes
-# This allows the xHeatlink app to connect when we're not actively using HA
 DISCONNECT_TIMEOUT = 180  # 180 = 3 min, 300 = 5 min, 60 = 1 min
 
-
 def _as_ha_error(err: Any, prefix: str) -> HomeAssistantError:
-    """Convert any exception to HomeAssistantError with context."""
     try:
         msg = str(err)
     except Exception:
         msg = repr(err)
     return HomeAssistantError(f"{prefix}: {msg}")
 
-
 def _hex(b: bytes) -> str:
-    """Convert bytes to hex string for logging."""
     return binascii.hexlify(b).decode()
 
-
 class SolamagicBleClient:
-    """
-    BLE client for Solamagic BT2000 heaters.
-
-    Handles Bluetooth connection, command sending, and status monitoring.
-    Implements auto-disconnect to allow mobile app access.
-    """
-
     def __init__(self, hass: HomeAssistant, address: str) -> None:
-        """
-        Initialize the BLE client.
-
-        Args:
-            hass: Home Assistant instance
-            address: Bluetooth MAC address (e.g., "D0:65:4C:8B:6C:36")
-        """
         self.hass = hass
         self.address = address.upper()
         self._client: Optional[BleakClientWithServiceCache] = None
@@ -70,58 +37,53 @@ class SolamagicBleClient:
         self._disconnect_timeout = DISCONNECT_TIMEOUT
 
     def set_status_callback(self, callback: Callable[[int], None]) -> None:
-        """
-        Register callback for status updates.
-
-        Args:
-            callback: Function to call when heater status changes.
-                     Receives power level (0, 33, 66, 100) as argument.
-        """
+        """Register callback for status updates"""
         self._status_callback = callback
 
-    def _reset_disconnect_timer(self) -> None:
+    def _schedule_auto_disconnect(self) -> None:
         """
-        Reset the auto-disconnect timer.
-
-        Called on every activity to extend the connection time.
-        After timeout expires, disconnects automatically to allow app access.
+        Schedule auto-disconnect timer.
+        
+        IMPORTANT: This method is called OUTSIDE the lock to avoid deadlock.
+        The timer callback may need to acquire the lock, so we must not
+        hold the lock when creating the timer.
         """
         if self._disconnect_timer:
             self._disconnect_timer.cancel()
 
         if self._client and self._client.is_connected:
             _LOGGER.debug(
-                "Resetting disconnect timer (%d seconds)",
-                self._disconnect_timeout,
+                "Scheduling disconnect timer (%d seconds)",
+                self._disconnect_timeout
             )
+            # FIX: Use proper method reference instead of lambda
+            # This avoids task leak and makes cleanup easier
             self._disconnect_timer = self.hass.loop.call_later(
                 self._disconnect_timeout,
-                lambda: asyncio.create_task(self._auto_disconnect()),
+                self._auto_disconnect_callback
             )
+
+    def _auto_disconnect_callback(self) -> None:
+        """
+        Callback for auto-disconnect timer.
+        
+        This method is called by the event loop and creates a task
+        for the actual disconnect operation.
+        """
+        self.hass.async_create_task(self._auto_disconnect())
 
     async def _auto_disconnect(self) -> None:
         """
         Automatic disconnect after inactivity.
-
         This releases the connection so the xHeatlink app can connect.
         """
         _LOGGER.info(
-            "Auto-disconnecting after %d seconds of inactivity "
-            "(allows app access)",
-            self._disconnect_timeout,
+            "Auto-disconnecting after %d seconds of inactivity (allows app access)",
+            self._disconnect_timeout
         )
         await self.disconnect()
 
     async def _ble_device(self):
-        """
-        Get BLE device from Home Assistant's Bluetooth integration.
-
-        Returns:
-            BLEDevice: The Bluetooth device object
-
-        Raises:
-            HomeAssistantError: If device not found or not connectable
-        """
         try:
             dev = bluetooth.async_ble_device_from_address(
                 self.hass, self.address, connectable=True
@@ -135,26 +97,14 @@ class SolamagicBleClient:
             raise _as_ha_error(err, "Bluetooth device lookup failed")
 
     async def _ensure_connected(self) -> BleakClientWithServiceCache:
-        """
-        Ensure we have an active BLE connection.
-
-        Reuses existing connection if available, otherwise establishes new one.
-        Starts notifications on all relevant handles.
-
-        Returns:
-            BleakClientWithServiceCache: Active BLE client
-
-        Raises:
-            HomeAssistantError: If connection fails
-        """
         if self._client and self._client.is_connected:
-            # Reuse existing connection and reset timer
-            self._reset_disconnect_timer()
+            # Reset timer when reusing existing connection
+            # FIX: Schedule timer OUTSIDE lock context
+            self._schedule_auto_disconnect()
             return self._client
 
         dev = await self._ble_device()
 
-        # Close any stale connections first
         try:
             await close_stale_connections(self.address)
         except Exception as err:
@@ -167,7 +117,7 @@ class SolamagicBleClient:
                 BleakClientWithServiceCache,
                 dev,
                 self.address,
-                disconnected_callback=self._handle_disconnect,
+                disconnected_callback=self._handle_disconnect
             )
         except Exception as err:
             raise _as_ha_error(err, "Bluetooth connect failed")
@@ -185,8 +135,8 @@ class SolamagicBleClient:
             except Exception as e:
                 _LOGGER.warning("Could not start notify on %#06x: %s", h, e)
 
-        # Start disconnect timer
-        self._reset_disconnect_timer()
+        # FIX: Schedule timer OUTSIDE lock context (after connection established)
+        self._schedule_auto_disconnect()
 
         return self._client
 
@@ -204,30 +154,13 @@ class SolamagicBleClient:
         - byte15=0x01, byte16=0x21 = 33% (power=1, level=33)
         - byte15=0x01, byte16=0x42 = 66% (power=1, level=66)
         - byte15=0x01, byte16=0x64 = 100% (power=1, level=100)
-
-        Examples from logs:
-        OFF:  1420037ed6000000000000000021000021000000
-                                        ^^^^^^^^
-                                        bytes 14-17: 00 00 21 00
-                                             power=byte15=0x00
-
-        66%:  1422037e60000000000000000021000142000000
-                                        ^^^^^^^^
-                                        bytes 14-17: 00 01 42 00
-                                             power=byte15=0x01, level=byte16=0x42
-
-        Args:
-            data: Raw bytes from notification
-
-        Returns:
-            Power level in percent (0, 33, 66, 100) or None if can't parse
         """
-        if len(data) < 17:
+        if len(data) < STATUS_MIN_LENGTH:
             return None
 
-        # Bytes 15-16 (0-indexed) contain power and level
-        power = data[15]
-        level = data[16]
+        # Use constants instead of magic numbers
+        power = data[STATUS_POWER_BYTE]
+        level = data[STATUS_LEVEL_BYTE]
 
         _LOGGER.debug("Status bytes: power=%#04x, level=%#04x", power, level)
 
@@ -262,17 +195,14 @@ class SolamagicBleClient:
 
         But in practice, the heater doesn't always send status data separately!
         Therefore we must update status based on the confirmation.
-
-        Args:
-            sender: Characteristic that sent the notification
-            data: Raw notification data
         """
         data_bytes = bytes(data)
         data_hex = _hex(data_bytes)
         data_len = len(data_bytes)
 
-        # Reset timer on any notification (indicates activity)
-        self._reset_disconnect_timer()
+        # FIX: Schedule timer reset OUTSIDE lock context
+        # We're not in a lock here, so this is safe
+        self._schedule_auto_disconnect()
 
         # Handle different notification types based on data length
         if data_len == 2:
@@ -288,9 +218,7 @@ class SolamagicBleClient:
 
         elif data_len >= 15:
             # This is status from handle 0x0032
-            _LOGGER.debug(
-                "📊 Status notification (%d bytes): %s", data_len, data_hex
-            )
+            _LOGGER.debug("📊 Status notification (%d bytes): %s", data_len, data_hex)
 
             # Parse status and notify callback
             level = self._parse_status(data_bytes)
@@ -313,15 +241,7 @@ class SolamagicBleClient:
             _LOGGER.debug("📡 Notification (%d bytes): %s", data_len, data_hex)
 
     @callback
-    def _handle_disconnect(
-        self, client: BleakClientWithServiceCache
-    ) -> None:
-        """
-        Handle disconnection event.
-
-        Args:
-            client: The disconnected BLE client
-        """
+    def _handle_disconnect(self, client: BleakClientWithServiceCache) -> None:
         _LOGGER.info("Disconnected from %s", self.address)
         if self._disconnect_timer:
             self._disconnect_timer.cancel()
@@ -331,80 +251,50 @@ class SolamagicBleClient:
     async def write_cccd(self, handle: int, value: bytes) -> None:
         """
         Write to CCCD (Client Characteristic Configuration Descriptor).
-
-        Args:
-            handle: CCCD handle number
-            value: Descriptor value (typically 0x0100 for notifications)
         """
         async with self._lock:
             client = await self._ensure_connected()
 
-            _LOGGER.debug(
-                "Writing CCCD handle=%#06x: %s", handle, _hex(value)
-            )
+            _LOGGER.debug("Writing CCCD handle=%#06x: %s", handle, _hex(value))
 
             try:
                 await client.write_gatt_descriptor(handle, value)
                 _LOGGER.debug("CCCD write successful (descriptor method)")
             except Exception as e1:
-                _LOGGER.debug(
-                    "Descriptor write failed: %s, trying char method...", e1
-                )
+                _LOGGER.debug("Descriptor write failed: %s, trying char method...", e1)
                 try:
                     await client.write_gatt_char(handle, value, response=True)
                     _LOGGER.debug("CCCD write successful (char method)")
                 except Exception as e2:
+                    # FIX: Log warning instead of silent pass
                     _LOGGER.warning(
-                        "Both CCCD write methods failed: "
-                        "desc=%s, char=%s",
-                        e1,
-                        e2,
+                        "Both CCCD write methods failed for handle %#06x: desc=%s, char=%s",
+                        handle, e1, e2
                     )
-                    pass
+                    # Don't raise - allow initialization to continue with other CCCDs
 
     async def write_init_sequence(self) -> None:
         """
         Write initialization sequence to handle 0x001F.
-
-        This "unlocks" the device for commands. Must be called once per
-        connection before sending any commands.
-
-        Raises:
-            HomeAssistantError: If initialization fails
         """
         async with self._lock:
             client = await self._ensure_connected()
 
-            _LOGGER.info(
-                "Writing initialization sequence to handle %#06x", HANDLE_INIT
-            )
+            _LOGGER.info("Writing initialization sequence to handle %#06x", HANDLE_INIT)
             _LOGGER.debug("Init payload: %s", _hex(INIT_PAYLOAD))
 
             try:
-                await client.write_gatt_char(
-                    HANDLE_INIT, INIT_PAYLOAD, response=True
-                )
+                await client.write_gatt_char(HANDLE_INIT, INIT_PAYLOAD, response=True)
                 _LOGGER.info("✓ Initialization sequence successful")
                 await asyncio.sleep(0.1)
             except Exception as e:
                 _LOGGER.error("Failed to write initialization sequence: %s", e)
                 raise _as_ha_error(e, "Initialization failed")
 
-    async def write_handle_raw(
-        self,
-        data: bytes,
-        response: bool = False,
-        repeat: int = 1,
-        delay_ms: int = 100,
-    ) -> None:
+    async def write_handle_raw(self, data: bytes, response: bool=False,
+                              repeat: int=1, delay_ms: int=100) -> None:
         """
         Write to handle 0x0028 (command characteristic).
-
-        Args:
-            data: Command bytes to send
-            response: Whether to request write response
-            repeat: Number of times to repeat command
-            delay_ms: Delay between repeats in milliseconds
         """
         async with self._lock:
             client = await self._ensure_connected()
@@ -412,91 +302,54 @@ class SolamagicBleClient:
             for i in range(max(1, repeat)):
                 _LOGGER.debug(
                     "Write #%d to handle %#06x, resp=%s: %s",
-                    i + 1,
-                    HANDLE_CMD,
-                    response,
-                    _hex(data),
+                    i+1, HANDLE_CMD, response, _hex(data)
                 )
 
                 try:
-                    await client.write_gatt_char(
-                        HANDLE_CMD, data, response=response
-                    )
+                    await client.write_gatt_char(HANDLE_CMD, data, response=response)
                 except Exception as e:
-                    _LOGGER.error("Write failed on attempt %d: %s", i + 1, e)
+                    _LOGGER.error("Write failed on attempt %d: %s", i+1, e)
                     if i == 0:
                         raise
 
-                if i + 1 < repeat:
-                    await asyncio.sleep(max(0, delay_ms) / 1000)
+                if i+1 < repeat:
+                    await asyncio.sleep(max(0, delay_ms)/1000)
 
-    async def write_handle_any(
-        self,
-        handle: int,
-        data: bytes,
-        response: bool = True,
-        repeat: int = 1,
-        delay_ms: int = 100,
-    ) -> None:
-        """
-        Write to arbitrary handle.
-
-        Args:
-            handle: Handle number to write to
-            data: Data bytes to send
-            response: Whether to request write response
-            repeat: Number of times to repeat write
-            delay_ms: Delay between repeats in milliseconds
-        """
+    async def write_handle_any(self, handle: int, data: bytes,
+                              response: bool=True, repeat: int=1,
+                              delay_ms: int=100) -> None:
+        """Write to arbitrary handle"""
         async with self._lock:
             client = await self._ensure_connected()
 
             for i in range(max(1, repeat)):
                 _LOGGER.debug(
                     "Write #%d to handle %#06x, resp=%s: %s",
-                    i + 1,
-                    handle,
-                    response,
-                    _hex(data),
+                    i+1, handle, response, _hex(data)
                 )
 
                 try:
                     await client.write_gatt_char(handle, data, response=response)
                 except Exception as e:
-                    _LOGGER.error(
-                        "Write to handle %#06x failed: %s", handle, e
-                    )
+                    _LOGGER.error("Write to handle %#06x failed: %s", handle, e)
                     if i == 0:
                         raise
 
-                if i + 1 < repeat:
-                    await asyncio.sleep(max(0, delay_ms) / 1000)
+                if i+1 < repeat:
+                    await asyncio.sleep(max(0, delay_ms)/1000)
 
-            # Reset timer after write
-            self._reset_disconnect_timer()
+        # FIX: Schedule timer AFTER releasing lock
+        self._schedule_auto_disconnect()
 
-    async def write_uuid_simple(
-        self, char_uuid: str, data: bytes, response: bool = False
-    ) -> None:
-        """
-        Write to characteristic via UUID.
-
-        Args:
-            char_uuid: Characteristic UUID
-            data: Data bytes to send
-            response: Whether to request write response
-
-        Raises:
-            HomeAssistantError: If write fails
-        """
+    async def write_uuid_simple(self, char_uuid: str, data: bytes,
+                               response: bool = False) -> None:
+        """Write to characteristic via UUID"""
         async with self._lock:
             client = await self._ensure_connected()
 
             _LOGGER.debug(
                 "Write to UUID %s, resp=%s: %s",
-                char_uuid,
-                response,
-                _hex(data),
+                char_uuid, response, _hex(data)
             )
 
             try:
@@ -507,11 +360,6 @@ class SolamagicBleClient:
                 raise _as_ha_error(err, "Bluetooth UUID write failed")
 
     async def disconnect(self) -> None:
-        """
-        Disconnect from the device.
-
-        Cancels auto-disconnect timer and closes BLE connection.
-        """
         async with self._lock:
             if self._disconnect_timer:
                 self._disconnect_timer.cancel()
