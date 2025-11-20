@@ -148,17 +148,16 @@ async def async_setup_entry(
         """Handle write_handle service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
-            _LOGGER.error(
-                "write_handle: no entry_id or device_id provided"
+            raise HomeAssistantError(
+                "No device specified. Please select a device or provide entry_id."
             )
-            return
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
-            _LOGGER.error(
-                "write_handle: no client for entry_id=%s", entry_id
+            raise HomeAssistantError(
+                f"Device with entry_id '{entry_id}' not found. "
+                "The device may have been removed or is not configured."
             )
-            return
             
         await client.write_handle_raw(
             _b(call.data["payload_hex"]),
@@ -171,17 +170,16 @@ async def async_setup_entry(
         """Handle write_handle_any service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
-            _LOGGER.error(
-                "write_handle_any: no entry_id or device_id provided"
+            raise HomeAssistantError(
+                "No device specified. Please select a device or provide entry_id."
             )
-            return
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
-            _LOGGER.error(
-                "write_handle_any: no client for entry_id=%s", entry_id
+            raise HomeAssistantError(
+                f"Device with entry_id '{entry_id}' not found. "
+                "The device may have been removed or is not configured."
             )
-            return
             
         await client.write_handle_any(
             call.data["handle"],
@@ -195,17 +193,15 @@ async def async_setup_entry(
         """Handle write_uuid service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
-            _LOGGER.error(
-                "write_uuid: no entry_id or device_id provided"
+            raise HomeAssistantError(
+                "No device specified. Please select a device or provide entry_id."
             )
-            return
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
-            _LOGGER.error(
-                "write_uuid: no client for entry_id=%s", entry_id
+            raise HomeAssistantError(
+                f"Device with entry_id '{entry_id}' not found."
             )
-            return
             
         await client.write_uuid_raw(
             call.data["char_uuid"],
@@ -221,17 +217,15 @@ async def async_setup_entry(
         """
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
-            _LOGGER.error(
-                "set_level: no entry_id or device_id provided"
+            raise HomeAssistantError(
+                "No device specified. Please select a device or provide entry_id."
             )
-            return
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
-            _LOGGER.error(
-                "set_level: no client for entry_id=%s", entry_id
+            raise HomeAssistantError(
+                f"Device with entry_id '{entry_id}' not found."
             )
-            return
             
         lvl = call.data['level']
         if isinstance(lvl, str):
@@ -242,17 +236,15 @@ async def async_setup_entry(
         """Handle disconnect service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
-            _LOGGER.error(
-                "disconnect: no entry_id or device_id provided"
+            raise HomeAssistantError(
+                "No device specified. Please select a device or provide entry_id."
             )
-            return
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
-            _LOGGER.error(
-                "disconnect: no client for entry_id=%s", entry_id
+            raise HomeAssistantError(
+                f"Device with entry_id '{entry_id}' not found."
             )
-            return
             
         await client.disconnect()
 
