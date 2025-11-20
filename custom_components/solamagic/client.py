@@ -6,7 +6,9 @@ from .bluetooth import SolamagicBleClient
 from .const import (
     CMD_OFF, CMD_ON_33, CMD_ON_66, CMD_ON_100,
     CHAR_CMD_F001, CHAR_ALT_F002, CONF_WRITE_MODE,
-    CCCD_CMD, CCCD_NTF1, CCCD_NTF2
+    CCCD_CMD, CCCD_NTF1, CCCD_NTF2,
+    INIT_DELAY_MS, CCCD_ENABLE_DELAY_MS, CMD_CONFIRMATION_DELAY_MS,
+    CMD_OFF_REPEAT_COUNT, CMD_OFF_DELAY_MS
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ class SolamagicClient:
         # This "unlocks" the device for commands
         _LOGGER.debug("Step 1: Writing initialization payload to 0x001F")
         await self._ble.write_init_sequence()
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(INIT_DELAY_MS / 1000)
 
         # Step 2: Enable notifications on 0x002F (via CCCD 0x0030)
         # This is the first notification channel
@@ -53,7 +55,7 @@ class SolamagicClient:
         except Exception as e:
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_NTF1, e)
 
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
         # Step 3: Enable notifications on 0x0032 (via CCCD 0x0033)
         # This is the status/data channel
@@ -64,7 +66,7 @@ class SolamagicClient:
         except Exception as e:
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_NTF2, e)
 
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
         # Step 4: Enable notifications on 0x0028 (via CCCD 0x0029) - LAST!
         # This is the command channel - must be enabled last!
@@ -75,7 +77,7 @@ class SolamagicClient:
         except Exception as e:
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_CMD, e)
 
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(CCCD_ENABLE_DELAY_MS * 2 / 1000)
         self._initialized = True
         _LOGGER.info("✓ Initialization sequence complete!")
 
@@ -112,7 +114,7 @@ class SolamagicClient:
             while (asyncio.get_event_loop().time() - start_time) < timeout:
                 if confirmed:
                     return True
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
             _LOGGER.warning(f"Timeout waiting for confirmation of {expected_cmd.hex()}")
             return False
@@ -156,7 +158,7 @@ class SolamagicClient:
         if pct == 0:
             # OFF: Send 00 21 many times (21 commands according to sniffer)
             _LOGGER.debug("Sending OFF command (00 21) x 21")
-            for i in range(21):
+            for i in range(CMD_OFF_REPEAT_COUNT):
                 await self._ble.write_handle_any(
                     0x0028,
                     CMD_OFF,
@@ -164,12 +166,12 @@ class SolamagicClient:
                     repeat=1,
                     delay_ms=0
                 )
-                await asyncio.sleep(0.016)  # ~16ms delay between commands
+                await asyncio.sleep(CMD_OFF_DELAY_MS / 1000)  # ~16ms delay between commands
 
             _LOGGER.info("✓ OFF sequence complete")
 
             # Wait briefly for confirmation
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
 
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:
@@ -192,7 +194,7 @@ class SolamagicClient:
             _LOGGER.info("✓ 33% command sent")
 
             # Wait briefly for confirmation
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
 
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:
@@ -215,7 +217,7 @@ class SolamagicClient:
             _LOGGER.info("✓ 66% command sent")
 
             # Wait briefly for confirmation
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
 
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:
@@ -238,7 +240,7 @@ class SolamagicClient:
             _LOGGER.info("✓ 100% command sent")
 
             # Wait briefly for confirmation
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
 
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:
