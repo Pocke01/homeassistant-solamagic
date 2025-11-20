@@ -96,6 +96,31 @@ class SolamagicClimate(ClimateEntity):
         return get_device_info(self._address, self._attr_name)
 
     @property
+    def available(self) -> bool:
+        """
+        Return if entity is available.
+        
+        Entity is available if:
+        - Currently connected to the device, OR
+        - We have a last known state (not initial state)
+        
+        This allows the entity to remain available between connections
+        while showing last known state.
+        """
+        # Check if actively connected
+        try:
+            if (hasattr(self._client._ble, '_client') and 
+                self._client._ble._client and 
+                self._client._ble._client.is_connected):
+                return True
+        except Exception:
+            pass
+        
+        # Available if we have any known state (not just initial 0)
+        # This allows showing last state even when disconnected
+        return hasattr(self, '_current_level')
+
+    @property
     def extra_state_attributes(self):
         """Return additional state attributes."""
         attrs = {
