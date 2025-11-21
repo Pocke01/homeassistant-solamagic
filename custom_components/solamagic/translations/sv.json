@@ -1,32 +1,56 @@
 {
   "config": {
     "step": {
+      "bluetooth": {
+        "description": "Solamagic 2000BT upptäckt via Bluetooth"
+      },
       "confirm": {
-        "title": "Lägg till värmeelement",
-        "description": "Vill du lägga till **{name}**?\n\n**Adress:** {address}\n**Signalstyrka:** {rssi}"
+        "title": "Lägg till Solamagic värmeelement",
+        "description": "Vill du lägga till **{name}**?\n\n**Adress:** `{address}`\n**Signalstyrka:** {rssi}"
       },
       "user": {
         "title": "Lägg till Solamagic manuellt",
-        "description": "Ange Bluetooth-adressen för din Solamagic 2000BT.",
+        "description": "Ange Bluetooth-adressen för ditt Solamagic 2000BT värmeelement.",
         "data": {
-          "address": "Bluetooth-adress",
-          "name": "Namn"
+          "address": "Bluetooth-adress (MAC)",
+          "name": "Namn (valfritt)",
+          "command_char": "Kommando-UUID (avancerat)",
+          "default_on_level": "Standard effektnivå",
+          "write_mode": "Skrivmetod (avancerat)"
+        },
+        "data_description": {
+          "address": "Format: AA:BB:CC:DD:EE:FF eller AA-BB-CC-DD-EE-FF",
+          "name": "Ett beskrivande namn, t.ex. 'Utevärmare'",
+          "default_on_level": "Vilken effektnivå som används vid påslagning",
+          "command_char": "Lämna som standard om du inte vet vad detta är",
+          "write_mode": "Använd 'handle' för nyare värmeelement, 'uuid' för äldre"
         }
       }
     },
+    "error": {
+      "cannot_connect": "Kunde inte ansluta till värmeelement",
+      "invalid_address": "Ogiltig Bluetooth-adress",
+      "unknown": "Ett oväntat fel inträffade"
+    },
     "abort": {
-      "already_configured": "Denna värmeelement är redan konfigurerad",
-      "already_configured_device": "En värmeelement med denna adress är redan tillagd"
+      "already_configured": "Detta värmeelement är redan konfigurerat",
+      "already_configured_device": "Ett värmeelement med denna adress är redan tillagt"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Solamagic-inställningar",
+        "description": "Konfigurera avancerade inställningar för ditt värmeelement",
         "data": {
           "command_char": "Kommando-UUID",
-          "default_on_level": "Standardnivå",
+          "default_on_level": "Standard effektnivå",
           "write_mode": "Skrivmetod"
+        },
+        "data_description": {
+          "command_char": "UUID för att skicka kommandon (ändra endast vid problem)",
+          "default_on_level": "Vilken effektnivå som används vid påslagning",
+          "write_mode": "Metod för att skicka BLE-kommandon (handle = snabbare, uuid = kompatibel)"
         }
       }
     }
