@@ -149,66 +149,135 @@ async def async_setup_entry(
         """Handle write_handle service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
+            _LOGGER.error(
+                "write_handle service failed: No device specified. "
+                "User must select a device or provide entry_id"
+            )
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
+            _LOGGER.error(
+                "write_handle service failed: Device '%s' not found. "
+                "Device may have been removed or is not configured",
+                entry_id
+            )
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found. "
                 "The device may have been removed or is not configured."
             )
-            
-        await client.write_handle_raw(
-            _b(call.data["payload_hex"]),
-            call.data["response"],
-            call.data["repeat"],
-            call.data["delay_ms"]
+        
+        _LOGGER.debug(
+            "write_handle service called: payload=%s, entry_id=%s",
+            call.data["payload_hex"], entry_id
         )
+        
+        try:
+            await client.write_handle_raw(
+                _b(call.data["payload_hex"]),
+                call.data["response"],
+                call.data["repeat"],
+                call.data["delay_ms"]
+            )
+        except Exception as err:
+            _LOGGER.error(
+                "write_handle service failed during Bluetooth operation: %s",
+                err, exc_info=True
+            )
+            raise HomeAssistantError(
+                f"Failed to write to device: {err}"
+            ) from err
 
     async def _svc_write_handle_any(call: ServiceCall) -> None:
         """Handle write_handle_any service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
+            _LOGGER.error(
+                "write_handle_any service failed: No device specified. "
+                "User must select a device or provide entry_id"
+            )
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
+            _LOGGER.error(
+                "write_handle_any service failed: Device '%s' not found. "
+                "Device may have been removed or is not configured",
+                entry_id
+            )
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found. "
                 "The device may have been removed or is not configured."
             )
-            
-        await client.write_handle_any(
-            call.data["handle"],
-            _b(call.data["payload_hex"]),
-            call.data["response"],
-            call.data["repeat"],
-            call.data["delay_ms"]
+        
+        _LOGGER.debug(
+            "write_handle_any service called: handle=0x%04X, payload=%s, entry_id=%s",
+            call.data["handle"], call.data["payload_hex"], entry_id
         )
+        
+        try:
+            await client.write_handle_any(
+                call.data["handle"],
+                _b(call.data["payload_hex"]),
+                call.data["response"],
+                call.data["repeat"],
+                call.data["delay_ms"]
+            )
+        except Exception as err:
+            _LOGGER.error(
+                "write_handle_any service failed during Bluetooth operation: %s",
+                err, exc_info=True
+            )
+            raise HomeAssistantError(
+                f"Failed to write to device handle: {err}"
+            ) from err
 
     async def _svc_write_uuid(call: ServiceCall) -> None:
         """Handle write_uuid service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
+            _LOGGER.error(
+                "write_uuid service failed: No device specified. "
+                "User must select a device or provide entry_id"
+            )
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
+            _LOGGER.error(
+                "write_uuid service failed: Device '%s' not found. "
+                "Device may have been removed or is not configured",
+                entry_id
+            )
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found."
             )
-            
-        await client.write_uuid_raw(
-            call.data["char_uuid"],
-            _b(call.data["payload_hex"]),
-            call.data["response"]
+        
+        _LOGGER.debug(
+            "write_uuid service called: uuid=%s, payload=%s, entry_id=%s",
+            call.data["char_uuid"], call.data["payload_hex"], entry_id
         )
+        
+        try:
+            await client.write_uuid_raw(
+                call.data["char_uuid"],
+                _b(call.data["payload_hex"]),
+                call.data["response"]
+            )
+        except Exception as err:
+            _LOGGER.error(
+                "write_uuid service failed during Bluetooth operation: %s",
+                err, exc_info=True
+            )
+            raise HomeAssistantError(
+                f"Failed to write to device UUID: {err}"
+            ) from err
 
     async def _svc_set_level(call: ServiceCall) -> None:
         """
@@ -218,12 +287,21 @@ async def async_setup_entry(
         """
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
+            _LOGGER.error(
+                "set_level service failed: No device specified. "
+                "User must select a device or provide entry_id"
+            )
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
+            _LOGGER.error(
+                "set_level service failed: Device '%s' not found. "
+                "Device may have been removed or is not configured",
+                entry_id
+            )
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found."
             )
@@ -231,23 +309,58 @@ async def async_setup_entry(
         lvl = call.data['level']
         if isinstance(lvl, str):
             lvl = int(lvl)
-        await client.set_level(lvl)
+        
+        _LOGGER.debug(
+            "set_level service called: level=%d%%, entry_id=%s",
+            lvl, entry_id
+        )
+        
+        try:
+            await client.set_level(lvl)
+        except Exception as err:
+            _LOGGER.error(
+                "set_level service failed during Bluetooth operation: %s",
+                err, exc_info=True
+            )
+            raise HomeAssistantError(
+                f"Failed to set heater level: {err}"
+            ) from err
 
     async def _svc_disconnect(call: ServiceCall) -> None:
         """Handle disconnect service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         if not entry_id:
+            _LOGGER.error(
+                "disconnect service failed: No device specified. "
+                "User must select a device or provide entry_id"
+            )
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
             
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
+            _LOGGER.error(
+                "disconnect service failed: Device '%s' not found. "
+                "Device may have been removed or is not configured",
+                entry_id
+            )
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found."
             )
-            
-        await client.disconnect()
+        
+        _LOGGER.debug("disconnect service called: entry_id=%s", entry_id)
+        
+        try:
+            await client.disconnect()
+        except Exception as err:
+            _LOGGER.error(
+                "disconnect service failed: %s",
+                err, exc_info=True
+            )
+            raise HomeAssistantError(
+                f"Failed to disconnect from device: {err}"
+            ) from err
 
     # Register services (once per integration)
     if not hass.services.has_service(DOMAIN, "write_handle"):
