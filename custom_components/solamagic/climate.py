@@ -1,4 +1,4 @@
-"""Climate entity for Solamagic BT2000 heaters."""
+"""Climate entity for Solamagic 2000BT heaters."""
 from __future__ import annotations
 import logging
 from typing import Any

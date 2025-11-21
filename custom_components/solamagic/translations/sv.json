@@ -7,7 +7,7 @@
       },
       "user": {
         "title": "Lägg till Solamagic manuellt",
-        "description": "Ange Bluetooth-adressen för din Solamagic BT2000.",
+        "description": "Ange Bluetooth-adressen för din Solamagic 2000BT.",
         "data": {
           "address": "Bluetooth-adress",
           "name": "Namn"

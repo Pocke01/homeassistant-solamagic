@@ -1,9 +1,9 @@
-# Solamagic BT2000 for Home Assistant
+# Solamagic 2000BT for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 [![GitHub release](https://img.shields.io/github/release/Pocke01/homeassistant-solamagic.svg)](https://github.com/Pocke01/homeassistant-solamagic/releases)
 
-Home Assistant custom integration for Solamagic BT2000 Bluetooth infrared patio heaters.
+Home Assistant custom integration for Solamagic 2000BT Bluetooth infrared patio heaters.
 
 ## Features
 
@@ -17,7 +17,7 @@ Home Assistant custom integration for Solamagic BT2000 Bluetooth infrared patio 
 
 ## Supported Devices
 
-- Solamagic BT2000 (Bluetooth-enabled infrared heaters)
+- Solamagic 2000BT (Bluetooth-enabled infrared heaters)
 - Manufacturer ID: 89
 - Bluetooth address pattern: `D0:65:4C:*`
 

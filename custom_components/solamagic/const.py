@@ -76,15 +76,15 @@ def get_device_info(address: str, entry_title: str = None) -> dict:
     if address:
         # Take last 6 characters of MAC (e.g. "8B6C36")
         short_mac = address.replace(":", "")[-6:].upper()
-        device_name = f"BT2000-{short_mac}"
+        device_name = f"2000BT-{short_mac}"
     else:
-        device_name = entry_title or "Solamagic BT2000"
+        device_name = entry_title or "Solamagic 2000BT"
     
     device_info = {
         "identifiers": {(DOMAIN, address)},
         "manufacturer": "Solamagic",
         "name": device_name,
-        "model": "BT2000",
+        "model": "2000BT",
         "suggested_area": "Outdoor",
     }
     

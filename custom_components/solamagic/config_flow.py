@@ -33,13 +33,13 @@ def _format_device_name(address: str) -> str:
         address: MAC address (e.g., "D0:65:4C:8B:6C:36")
 
     Returns:
-        Formatted name (e.g., "BT2000-8B6C36")
+        Formatted name (e.g., "2000BT-8B6C36")
     """
     if address:
         # Take last 6 characters of MAC (e.g., "8B6C36")
         short_mac = address.replace(":", "")[-6:].upper()
-        return f"BT2000-{short_mac}"
-    return "Solamagic BT2000"
+        return f"2000BT-{short_mac}"
+    return "Solamagic 2000BT"
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -105,8 +105,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             # Create entry with discovered info
-            # Use device name from placeholders (e.g., "BT2000-8B6C36")
-            title = placeholders.get("name", "Solamagic BT2000")
+            # Use device name from placeholders (e.g., "2000BT-8B6C36")
+            title = placeholders.get("name", "Solamagic 2000BT")
             data = {
                 CONF_ADDRESS: self._discovery_info.address,
                 CONF_NAME: title,

@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "bluetooth": {
-        "description": "Solamagic BT2000 discovered via Bluetooth"
+        "description": "Solamagic 2000BT discovered via Bluetooth"
       },
       "confirm": {
         "title": "Add Solamagic Heater",
@@ -10,7 +10,7 @@
       },
       "user": {
         "title": "Add Solamagic manually",
-        "description": "Enter the Bluetooth address of your Solamagic BT2000 heater.",
+        "description": "Enter the Bluetooth address of your Solamagic 2000BT heater.",
         "data": {
           "address": "Bluetooth address (MAC)",
           "name": "Name (optional)",
