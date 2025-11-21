@@ -58,6 +58,32 @@ CONF_DEFAULT_ON_LEVEL = "default_on_level"
 CONF_WRITE_MODE = "write_mode"  # "handle" (recommended via proxy) or "uuid"
 
 
+def format_device_name(address: str) -> str:
+    """
+    Create device name from MAC address.
+    
+    This is the single source of truth for device naming.
+    Used by both config flow and device registry.
+    
+    Args:
+        address: MAC address (e.g., "D0:65:4C:8B:6C:36")
+    
+    Returns:
+        Formatted name (e.g., "2000BT-8B6C36")
+    
+    Examples:
+        >>> format_device_name("D0:65:4C:8B:6C:36")
+        "2000BT-8B6C36"
+        >>> format_device_name("")
+        "Solamagic 2000BT"
+    """
+    if address:
+        # Take last 6 characters of MAC (e.g., "8B6C36")
+        short_mac = address.replace(":", "")[-6:].upper()
+        return f"2000BT-{short_mac}"
+    return "Solamagic 2000BT"
+
+
 def get_device_info(address: str, entry_title: str = None) -> dict:
     """
     Create uniform device_info for all entities.
@@ -67,18 +93,13 @@ def get_device_info(address: str, entry_title: str = None) -> dict:
     
     Args:
         address: MAC address of the device
-        entry_title: Title from config entry (if available)
+        entry_title: Title from config entry (if available, not used currently)
     
     Returns:
         Dict with device information
     """
-    # Create a better device name based on MAC address
-    if address:
-        # Take last 6 characters of MAC (e.g. "8B6C36")
-        short_mac = address.replace(":", "")[-6:].upper()
-        device_name = f"2000BT-{short_mac}"
-    else:
-        device_name = entry_title or "Solamagic 2000BT"
+    # Use centralized device name formatting
+    device_name = format_device_name(address)
     
     device_info = {
         "identifiers": {(DOMAIN, address)},
