@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 [![GitHub release](https://img.shields.io/github/release/Pocke01/homeassistant-solamagic.svg)](https://github.com/Pocke01/homeassistant-solamagic/releases)
-
+![](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.solamagic.total)
 Home Assistant custom integration for Solamagic BT2000 Bluetooth infrared patio heaters.
 
 ## Features
