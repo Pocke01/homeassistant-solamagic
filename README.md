@@ -87,17 +87,18 @@ data:
 
 **In Automations:**
 ```yaml
-automation:
-  - alias: "Turn on patio heater at sunset"
-    trigger:
-      platform: sun
-      event: sunset
-    action:
-      - service: solamagic.set_level
-        target:
-          device_id: YOUR_DEVICE_ID  # Easy to select in UI
-        data:
-          level: 66
+alias: Heater on at sunset
+description: ""
+triggers:
+  - trigger: sun
+    event: sunset
+    offset: 0
+actions:
+  - action: solamagic.set_level
+    metadata: {}
+    data:
+      level: "66"
+      device_id: YOUR_DEVICE_ID
 ```
 
 **Advanced (using entry_id):**
@@ -161,60 +162,48 @@ target:
 
 ### Basic Temperature Control
 ```yaml
-automation:
-  - alias: "Patio heater on when cold"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.outdoor_temperature
-        below: 15
-    action:
-      - service: solamagic.set_level
-        target:
-          device_id: YOUR_DEVICE_ID
-        data:
-          level: 66
+alias: "Patio heater on when cold"
+description: Turn on when temperature drops
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.outdoor_temperature
+    below: 15
+actions:
+  - action: climate.set_preset_mode
+    metadata: {}
+    data:
+      preset_mode: medium
+    target:
+      entity_id: YOUR_ENTITY_ID
 ```
 
-### Smart Heating Schedule
+### Turn on at 18:00, off at 22:00:
 ```yaml
-automation:
-  - alias: "Evening patio heating"
-    trigger:
-      - platform: time
-        at: "18:00:00"
-    condition:
-      - condition: numeric_state
-        entity_id: sensor.outdoor_temperature
-        below: 20
-    action:
-      - service: solamagic.set_level
-        target:
-          device_id: YOUR_DEVICE_ID
-        data:
-          level: 100
-      - delay:
-          hours: 3
-      - service: solamagic.set_level
-        target:
-          device_id: YOUR_DEVICE_ID
-        data:
-          level: 0
-```
+# Turn on
+alias: Evening Heating
+triggers:
+  - trigger: time
+    at: "18:00:00"
+actions:
+  - action: climate.set_preset_mode
+    data:
+      preset_mode: high
+    target:
+      entity_id: climate.YOUR_HEATER
 
-### Presence-Based Heating
-```yaml
-automation:
-  - alias: "Heater on when people on patio"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.patio_motion
-        to: "on"
-    action:
-      - service: solamagic.set_level
-        target:
-          device_id: YOUR_DEVICE_ID
-        data:
-          level: 66
+---
+
+# Turn off
+alias: Night Off
+triggers:
+  - trigger: time
+    at: "22:00:00"
+actions:
+  - action: climate.set_hvac_mode
+    data:
+      hvac_mode: "off"
+    target:
+      entity_id: climate.YOUR_HEATER
 ```
 
 ## Bluetooth Protocol
