@@ -15,6 +15,7 @@ from .const import (
     CONF_DEFAULT_ON_LEVEL,
     CONF_WRITE_MODE,
     CHAR_CMD_F001,
+    format_device_name,
 )
 
 DEFAULTS = {
@@ -22,24 +23,6 @@ DEFAULTS = {
     CONF_DEFAULT_ON_LEVEL: 100,
     CONF_WRITE_MODE: "handle",
 }
-
-
-def _format_device_name(address: str) -> str:
-    """
-    Create device name from MAC address.
-    Same logic as get_device_info() in const.py.
-
-    Args:
-        address: MAC address (e.g., "D0:65:4C:8B:6C:36")
-
-    Returns:
-        Formatted name (e.g., "BT2000-8B6C36")
-    """
-    if address:
-        # Take last 6 characters of MAC (e.g., "8B6C36")
-        short_mac = address.replace(":", "")[-6:].upper()
-        return f"BT2000-{short_mac}"
-    return "Solamagic BT2000"
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -68,8 +51,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         address = discovery_info.address
         rssi = getattr(discovery_info, "rssi", None)
 
-        # Create nice name based on MAC
-        device_name = _format_device_name(address)
+        # Create nice name based on MAC using centralized function
+        device_name = format_device_name(address)
 
         # Set unique ID to prevent duplicates
         await self.async_set_unique_id(address)
@@ -105,8 +88,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             # Create entry with discovered info
-            # Use device name from placeholders (e.g., "BT2000-8B6C36")
-            title = placeholders.get("name", "Solamagic BT2000")
+            # Use device name from placeholders (e.g., "2000BT-8B6C36")
+            title = placeholders.get("name", "Solamagic 2000BT")
             data = {
                 CONF_ADDRESS: self._discovery_info.address,
                 CONF_NAME: title,
@@ -150,7 +133,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ):
                 title = user_input.get(CONF_NAME)
             else:
-                title = _format_device_name(address)
+                title = format_device_name(address)
 
             data = {
                 CONF_ADDRESS: address,

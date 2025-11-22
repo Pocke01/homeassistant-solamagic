@@ -78,9 +78,6 @@ class SolamagicPowerSensor(SensorEntity):
         self._polling = False
         self._cancel_poll = None
 
-        # Save reference to climate callback
-        self._climate_callback = None
-
         _LOGGER.debug(
             "Initialized power sensor: %s (poll interval=%s)",
             name,
@@ -104,20 +101,8 @@ class SolamagicPowerSensor(SensorEntity):
         """Start polling when added to hass."""
         await super().async_added_to_hass()
 
-        # Save climate callback and chain our own
-        old_callback = self._client._ble._status_callback
-        self._climate_callback = old_callback
-
-        def combined_callback(level: int):
-            """Combined callback that calls both sensor and climate."""
-            self._handle_status_update(level)
-            if old_callback:
-                try:
-                    old_callback(level)
-                except Exception as e:
-                    _LOGGER.error("Old callback error: %s", e)
-
-        self._client._ble.set_status_callback(combined_callback)
+        # Register callback for real-time status updates
+        self._client._ble.set_status_callback(self._handle_status_update)
 
         # Start periodic polling
         self._cancel_poll = async_track_time_interval(
@@ -166,15 +151,6 @@ class SolamagicPowerSensor(SensorEntity):
             _LOGGER.debug("Poll already in progress, skipping")
             return
 
-        # Skip polling if connection is already active
-        if hasattr(self._client._ble, "_client") and self._client._ble._client:
-            if self._client._ble._client.is_connected:
-                _LOGGER.debug(
-                    "Already connected, skipping poll "
-                    "(will get real-time updates)"
-                )
-                return
-
         self._polling = True
 
         try:
@@ -205,26 +181,6 @@ class SolamagicPowerSensor(SensorEntity):
                     self._attr_native_value = received_status
                     self._last_poll = self.hass.loop.time()
                     _LOGGER.info("✓ Polled status: %d%%", received_status)
-
-                    # Notify climate entity
-                    if (
-                        hasattr(self, "_climate_callback")
-                        and self._climate_callback
-                    ):
-                        try:
-                            _LOGGER.debug(
-                                "Calling climate callback with: %d%%",
-                                received_status,
-                            )
-                            self._climate_callback(received_status)
-                            _LOGGER.debug(
-                                "✓ Notified climate entity: %d%%",
-                                received_status,
-                            )
-                        except Exception as e:
-                            _LOGGER.error(
-                                "Climate callback failed: %s", e, exc_info=True
-                            )
                 else:
                     _LOGGER.warning(
                         "No status received during poll (timeout)"

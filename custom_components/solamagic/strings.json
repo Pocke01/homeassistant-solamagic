@@ -7,7 +7,7 @@
       },
       "user": {
         "title": "Add Solamagic manually",
-        "description": "Enter the Bluetooth address of your Solamagic BT2000.",
+        "description": "Enter the Bluetooth address of your Solamagic 2000BT.",
         "data": {
           "address": "Bluetooth address",
           "name": "Name"
