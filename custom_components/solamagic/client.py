@@ -173,6 +173,9 @@ class SolamagicClient:
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
 
+            # Set expected level to filter stale notifications
+            self._ble.set_expected_level(0)
+
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:
                 try:
@@ -195,6 +198,9 @@ class SolamagicClient:
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
+
+            # Set expected level to filter stale notifications
+            self._ble.set_expected_level(33)
 
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:
@@ -219,6 +225,9 @@ class SolamagicClient:
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
 
+            # Set expected level to filter stale notifications
+            self._ble.set_expected_level(66)
+
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:
                 try:
@@ -241,6 +250,9 @@ class SolamagicClient:
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
+
+            # Set expected level to filter stale notifications
+            self._ble.set_expected_level(100)
 
             # Update status directly (heater doesn't send separate notification)
             if self._ble._status_callback:

@@ -35,6 +35,20 @@ class SolamagicBleClient:
         self._confirmation_callback: Optional[Callable[[bytes], None]] = None
         self._disconnect_timer: Optional[asyncio.TimerHandle] = None
         self._disconnect_timeout = DISCONNECT_TIMEOUT
+        self._expected_level: Optional[int] = None  # Expected level after command
+        self._expected_level_time: float = 0  # When we set expected level
+
+    def set_expected_level(self, level: int) -> None:
+        """
+        Set expected level after sending command.
+        
+        This helps filter out stale status notifications that arrive
+        after we've already updated to the commanded level.
+        """
+        import time
+        self._expected_level = level
+        self._expected_level_time = time.time()
+        _LOGGER.debug("Set expected level: %d%% (will ignore different values for 1 second)", level)
 
     def set_status_callback(self, callback: Callable[[int], None]) -> None:
         """Register callback for status updates"""
@@ -108,7 +122,7 @@ class SolamagicBleClient:
         try:
             await close_stale_connections(self.address)
         except Exception as err:
-            _LOGGER.debug("close_stale_connections warning: %r", err)
+            _LOGGER.debug("close_stale_connections warning: %s", err)
 
         _LOGGER.info("Connecting to %s...", self.address)
 
@@ -223,7 +237,27 @@ class SolamagicBleClient:
             # Parse status and notify callback
             level = self._parse_status(data_bytes)
             if level is not None:
+                # Check if we should ignore this notification
+                # (it might be stale if we just sent a command)
+                import time
+                time_since_expected = time.time() - self._expected_level_time
+                
+                if (self._expected_level is not None and 
+                    time_since_expected < 1.0 and 
+                    level != self._expected_level):
+                    _LOGGER.debug(
+                        "⏭️  Ignoring stale notification: %d%% "
+                        "(expected %d%%, sent %.1fs ago)",
+                        level, self._expected_level, time_since_expected
+                    )
+                    return  # Ignore this stale notification
+                
                 _LOGGER.info("📡 Heater status from notification: %d%%", level)
+                
+                # Clear expected level if this matches or enough time passed
+                if level == self._expected_level or time_since_expected >= 1.0:
+                    self._expected_level = None
+                
                 if self._status_callback:
                     try:
                         self._status_callback(level)
