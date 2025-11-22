@@ -1,7 +1,7 @@
 {
   "domain": "solamagic",
   "name": "Solamagic",
-  "version": "0.3.25",
+  "version": "0.3.30",
   "documentation": "https://github.com/Pocke01/homeassistant-solamagic",
   "codeowners": ["@Pocke01"],
   "issue_tracker": "https://github.com/Pocke01/homeassistant-solamagic/issues",
