@@ -21,6 +21,9 @@ from .client import SolamagicClient
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[str] = ["climate", "sensor"]
 
+# Integration is configured via config entries only (UI setup)
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 
 def _b(hexstr: str) -> bytes:
     """Convert hex string to bytes."""
