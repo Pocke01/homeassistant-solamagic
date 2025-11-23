@@ -56,7 +56,8 @@ class SolamagicClimate(ClimateEntity):
     Provides control via HVAC modes (OFF/HEAT) and preset modes (33%/66%/100%).
     """
 
-    _attr_has_entity_name = True
+    _attr_has_entity_name = True  # Use device name as base
+    _attr_name = None  # None = use device name directly (no suffix)
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_supported_features = (
         ClimateEntityFeature.PRESET_MODE
@@ -77,10 +78,11 @@ class SolamagicClimate(ClimateEntity):
             unique_id: Unique identifier for this entity
         """
         self._client = client
-        self._attr_name = name
+        # Don't set _attr_name - let it use device name from device_info
         self._attr_unique_id = f"{unique_id}-climate"
         self._address = getattr(client._ble, "address", None)
         self._entry_id = unique_id
+        self._entry_title = name  # Save for device_info
 
         # Current state
         self._attr_hvac_mode = HVACMode.OFF
@@ -92,14 +94,14 @@ class SolamagicClimate(ClimateEntity):
 
         _LOGGER.debug(
             "Initialized Solamagic climate entity: %s (unique_id=%s)",
-            name,
+            self._entry_title,
             self._attr_unique_id,
         )
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address, self._attr_name)
+        return get_device_info(self._address, self._entry_title)
 
     async def async_added_to_hass(self) -> None:
         """Set up listener for sensor state changes when added to hass."""
@@ -107,7 +109,7 @@ class SolamagicClimate(ClimateEntity):
 
         # Listen to power sensor state changes
         # This ensures climate updates even after disconnect/reconnect
-        sensor_entity_id = f"sensor.{self._attr_name.lower().replace(' ', '_')}_power_level"
+        sensor_entity_id = f"sensor.{self._entry_title.lower().replace(' ', '_').replace('-', '_')}_power_level"
 
         @callback
         def sensor_state_changed(event):

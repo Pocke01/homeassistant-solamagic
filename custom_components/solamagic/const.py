@@ -93,13 +93,19 @@ def get_device_info(address: str, entry_title: str = None) -> dict:
     
     Args:
         address: MAC address of the device
-        entry_title: Title from config entry (if available, not used currently)
+        entry_title: Title from config entry (user's chosen name)
+                     If provided, this is used as device name.
+                     If None, generates name from MAC address.
     
     Returns:
         Dict with device information
     """
-    # Use centralized device name formatting
-    device_name = format_device_name(address)
+    # Use entry_title if provided (user's chosen name),
+    # otherwise generate from MAC address
+    if entry_title:
+        device_name = entry_title
+    else:
+        device_name = format_device_name(address)
     
     device_info = {
         "identifiers": {(DOMAIN, address)},

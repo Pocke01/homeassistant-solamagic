@@ -65,13 +65,14 @@ class SolamagicPowerSensor(SensorEntity):
 
         Args:
             client: SolamagicClient instance
-            name: Entity name
+            name: Entity name (from entry.title)
             unique_id: Unique identifier
         """
         self._client = client
-        self._attr_name = "Power Level"
+        self._attr_name = "Power Level"  # Suffix added to device name
         self._attr_unique_id = f"{unique_id}-power"
         self._address = getattr(client._ble, "address", None)
+        self._entry_title = name  # Save for get_device_info
 
         # Current state
         self._attr_native_value = 0
@@ -87,7 +88,7 @@ class SolamagicPowerSensor(SensorEntity):
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address)
+        return get_device_info(self._address, self._entry_title)
 
     @property
     def extra_state_attributes(self):
@@ -180,7 +181,7 @@ class SolamagicPowerSensor(SensorEntity):
                 if received_status is not None:
                     self._attr_native_value = received_status
                     self._last_poll = self.hass.loop.time()
-                    _LOGGER.info("✓ Polled status: %d%%", received_status)
+                    _LOGGER.info("✅ Polled status: %d%%", received_status)
                 else:
                     _LOGGER.warning(
                         "No status received during poll (timeout)"
@@ -225,19 +226,20 @@ class SolamagicRSSISensor(SensorEntity):
 
         Args:
             client: SolamagicClient instance
-            name: Entity name
+            name: Entity name (from entry.title)
             unique_id: Unique identifier
         """
         self._client = client
-        self._attr_name = "Signal Strength"
+        self._attr_name = "Signal Strength"  # Suffix added to device name
         self._attr_unique_id = f"{unique_id}-rssi"
         self._address = getattr(client._ble, "address", None)
         self._attr_native_value = None
+        self._entry_title = name  # Save for get_device_info
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address)
+        return get_device_info(self._address, self._entry_title)
 
     async def async_update(self) -> None:
         """
@@ -305,20 +307,21 @@ class SolamagicConnectionSensor(SensorEntity):
 
         Args:
             client: SolamagicClient instance
-            name: Entity name
+            name: Entity name (from entry.title)
             unique_id: Unique identifier
         """
         self._client = client
-        self._attr_name = "Connection Status"
+        self._attr_name = "Connection Status"  # Suffix added to device name
         self._attr_unique_id = f"{unique_id}-connection"
         self._address = getattr(client._ble, "address", None)
         self._attr_native_value = "disconnected"
         self._remove_listener = None
+        self._entry_title = name  # Save for get_device_info
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address)
+        return get_device_info(self._address, self._entry_title)
 
     @property
     def extra_state_attributes(self):
