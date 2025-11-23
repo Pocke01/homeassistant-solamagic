@@ -181,7 +181,7 @@ class SolamagicPowerSensor(SensorEntity):
                 if received_status is not None:
                     self._attr_native_value = received_status
                     self._last_poll = self.hass.loop.time()
-                    _LOGGER.info("✅ Polled status: %d%%", received_status)
+                    _LOGGER.info("Polled status: %d%%", received_status)
                 else:
                     _LOGGER.warning(
                         "No status received during poll (timeout)"

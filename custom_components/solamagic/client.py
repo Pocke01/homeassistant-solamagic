@@ -51,7 +51,7 @@ class SolamagicClient:
         _LOGGER.debug("Step 2: Enabling notifications on 0x002F (CCCD 0x0030)")
         try:
             await self._ble.write_cccd(CCCD_NTF1, bytes([0x01, 0x00]))
-            _LOGGER.debug("✓ CCCD 0x%04X enabled (notifications)", CCCD_NTF1)
+            _LOGGER.debug("CCCD 0x%04X enabled (notifications)", CCCD_NTF1)
         except Exception as e:
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_NTF1, e)
 
@@ -62,7 +62,7 @@ class SolamagicClient:
         _LOGGER.debug("Step 3: Enabling notifications on 0x0032 (CCCD 0x0033)")
         try:
             await self._ble.write_cccd(CCCD_NTF2, bytes([0x01, 0x00]))
-            _LOGGER.debug("✓ CCCD 0x%04X enabled (notifications)", CCCD_NTF2)
+            _LOGGER.debug("CCCD 0x%04X enabled (notifications)", CCCD_NTF2)
         except Exception as e:
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_NTF2, e)
 
@@ -73,13 +73,13 @@ class SolamagicClient:
         _LOGGER.debug("Step 4: Enabling notifications on 0x0028 (CCCD 0x0029) - LAST!")
         try:
             await self._ble.write_cccd(CCCD_CMD, bytes([0x01, 0x00]))
-            _LOGGER.debug("✓ CCCD 0x%04X enabled (notifications)", CCCD_CMD)
+            _LOGGER.debug("CCCD 0x%04X enabled (notifications)", CCCD_CMD)
         except Exception as e:
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_CMD, e)
 
         await asyncio.sleep(CCCD_ENABLE_DELAY_MS * 2 / 1000)
         self._initialized = True
-        _LOGGER.info("✓ Initialization sequence complete!")
+        _LOGGER.info("Initialization sequence complete!")
 
     async def _wait_for_confirmation(self, expected_cmd: bytes, timeout: float = 1.0) -> bool:
         """
@@ -103,7 +103,7 @@ class SolamagicClient:
             nonlocal confirmed
             if len(data) == 2 and data == expected_cmd:
                 confirmed = True
-                _LOGGER.debug(f"✓ Command confirmed: {data.hex()}")
+                _LOGGER.debug("Command confirmed: %s", data.hex())
 
         # Save old callback and set ours
         old_callback = self._ble._confirmation_callback
@@ -116,7 +116,7 @@ class SolamagicClient:
                     return True
                 await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
-            _LOGGER.warning(f"Timeout waiting for confirmation of {expected_cmd.hex()}")
+            _LOGGER.warning("Timeout waiting for confirmation of %s", expected_cmd.hex())
             return False
 
         finally:
@@ -168,7 +168,7 @@ class SolamagicClient:
                 )
                 await asyncio.sleep(CMD_OFF_DELAY_MS / 1000)  # ~16ms delay between commands
 
-            _LOGGER.info("✓ OFF sequence complete")
+            _LOGGER.info("OFF sequence complete")
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
@@ -180,9 +180,9 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(0)
-                    _LOGGER.info("✓ Updated status to 0% (OFF confirmed)")
+                    _LOGGER.info("Updated status to 0% (OFF confirmed)")
                 except Exception as e:
-                    _LOGGER.error(f"Status callback error: {e}")
+                    _LOGGER.error("Status callback error: %s", e)
 
         elif pct == 33:
             # 33%: Send 01 21 once
@@ -194,7 +194,7 @@ class SolamagicClient:
                 repeat=1,
                 delay_ms=0
             )
-            _LOGGER.info("✓ 33% command sent")
+            _LOGGER.info("33% command sent")
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
@@ -206,9 +206,9 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(33)
-                    _LOGGER.info("✓ Updated status to 33% (command confirmed)")
+                    _LOGGER.info("Updated status to 33% (command confirmed)")
                 except Exception as e:
-                    _LOGGER.error(f"Status callback error: {e}")
+                    _LOGGER.error("Status callback error: %s", e)
 
         elif pct == 66:
             # 66%: Send 01 42 once
@@ -220,7 +220,7 @@ class SolamagicClient:
                 repeat=1,
                 delay_ms=0
             )
-            _LOGGER.info("✓ 66% command sent")
+            _LOGGER.info("66% command sent")
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
@@ -232,9 +232,9 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(66)
-                    _LOGGER.info("✓ Updated status to 66% (command confirmed)")
+                    _LOGGER.info("Updated status to 66% (command confirmed)")
                 except Exception as e:
-                    _LOGGER.error(f"Status callback error: {e}")
+                    _LOGGER.error("Status callback error: %s", e)
 
         elif pct == 100:
             # 100%: Send 01 64 once
@@ -246,7 +246,7 @@ class SolamagicClient:
                 repeat=1,
                 delay_ms=0
             )
-            _LOGGER.info("✓ 100% command sent")
+            _LOGGER.info("100% command sent")
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
@@ -258,9 +258,9 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(100)
-                    _LOGGER.info("✓ Updated status to 100% (command confirmed)")
+                    _LOGGER.info("Updated status to 100% (command confirmed)")
                 except Exception as e:
-                    _LOGGER.error(f"Status callback error: {e}")
+                    _LOGGER.error("Status callback error: %s", e)
 
     async def off(self) -> None:
         """Turn off the heater"""

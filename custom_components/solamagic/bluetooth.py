@@ -145,7 +145,7 @@ class SolamagicBleClient:
         for h in (HANDLE_CMD, HANDLE_NTF1, HANDLE_NTF2):
             try:
                 await self._client.start_notify(h, self._notification_handler)
-                _LOGGER.info("✓ Started notify on handle %#06x", h)
+                _LOGGER.info("Started notify on handle %#06x", h)
             except Exception as e:
                 _LOGGER.warning("Could not start notify on %#06x: %s", h, e)
 
@@ -221,7 +221,7 @@ class SolamagicBleClient:
         # Handle different notification types based on data length
         if data_len == 2:
             # This is command confirmation from handle 0x0028
-            _LOGGER.info("✓ Command confirmed: %s", data_hex)
+            _LOGGER.info("Command confirmed: %s", data_hex)
 
             # Notify confirmation callback if exists
             if self._confirmation_callback:
@@ -232,7 +232,7 @@ class SolamagicBleClient:
 
         elif data_len >= 15:
             # This is status from handle 0x0032
-            _LOGGER.debug("📊 Status notification (%d bytes): %s", data_len, data_hex)
+            _LOGGER.debug("Status notification (%d bytes): %s", data_len, data_hex)
 
             # Parse status and notify callback
             level = self._parse_status(data_bytes)
@@ -246,13 +246,13 @@ class SolamagicBleClient:
                     time_since_expected < 1.0 and 
                     level != self._expected_level):
                     _LOGGER.debug(
-                        "⏭️  Ignoring stale notification: %d%% "
+                        "Ignoring stale notification: %d%% "
                         "(expected %d%%, sent %.1fs ago)",
                         level, self._expected_level, time_since_expected
                     )
                     return  # Ignore this stale notification
                 
-                _LOGGER.info("📡 Heater status from notification: %d%%", level)
+                _LOGGER.info("Heater status from notification: %d%%", level)
                 
                 # Clear expected level if this matches or enough time passed
                 if level == self._expected_level or time_since_expected >= 1.0:
@@ -268,11 +268,11 @@ class SolamagicBleClient:
 
         elif data_len == 3:
             # This is from handle 0x002F (status byte)
-            _LOGGER.debug("📡 Status byte from 0x002F: %s", data_hex)
+            _LOGGER.debug("Status byte from 0x002F: %s", data_hex)
 
         else:
             # Other notifications
-            _LOGGER.debug("📡 Notification (%d bytes): %s", data_len, data_hex)
+            _LOGGER.debug("Notification (%d bytes): %s", data_len, data_hex)
 
     @callback
     def _handle_disconnect(self, client: BleakClientWithServiceCache) -> None:
@@ -319,7 +319,7 @@ class SolamagicBleClient:
 
             try:
                 await client.write_gatt_char(HANDLE_INIT, INIT_PAYLOAD, response=True)
-                _LOGGER.info("✓ Initialization sequence successful")
+                _LOGGER.info("Initialization sequence successful")
                 await asyncio.sleep(0.1)
             except Exception as e:
                 _LOGGER.error("Failed to write initialization sequence: %s", e)
