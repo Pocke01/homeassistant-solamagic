@@ -1,7 +1,9 @@
 from __future__ import annotations
 import logging
 import asyncio
+
 from homeassistant.core import HomeAssistant
+
 from .bluetooth import SolamagicBleClient
 from .const import (
     CCCD_CMD,
@@ -156,6 +158,12 @@ class SolamagicClient:
         IMPORTANT: The heater does NOT send a separate status notification after the command!
         It only confirms with the same bytes (2 bytes) back on handle 0x0028.
         We must therefore assume the command succeeded and update status manually.
+        
+        Args:
+            pct: Power level percentage (0, 33, 66, or 100)
+        
+        Raises:
+            ValueError: If pct is not one of the valid values (0, 33, 66, 100)
         """
         if pct not in (0, 33, 66, 100):
             raise ValueError("pct must be one of 0, 33, 66, 100")
@@ -273,7 +281,11 @@ class SolamagicClient:
                     _LOGGER.error("Status callback error: %s", e)
 
     async def off(self) -> None:
-        """Turn off the heater"""
+        """
+        Turn off the heater.
+        
+        This is a convenience method that calls set_level(0).
+        """
         await self.set_level(0)
 
     # Service API (used by __init__.py services)
@@ -281,7 +293,14 @@ class SolamagicClient:
                               repeat: int=1, delay_ms: int=100) -> None:
         """
         Direct handle writing for services.
+        
         Used by solamagic.write_handle service.
+        
+        Args:
+            data: Raw bytes to write to handle
+            response: Whether to wait for response (default: False)
+            repeat: Number of times to repeat command (default: 1)
+            delay_ms: Delay between repeats in milliseconds (default: 100)
         """
         await self._ensure_initialized()
         await self._ble.write_handle_raw(data, response=response,
@@ -291,7 +310,15 @@ class SolamagicClient:
                               repeat: int=1, delay_ms: int=100) -> None:
         """
         Write to arbitrary handle.
+        
         Used by solamagic.write_handle_any service.
+        
+        Args:
+            handle: GATT handle number (decimal)
+            data: Raw bytes to write
+            response: Whether to wait for response (default: False)
+            repeat: Number of times to repeat command (default: 1)
+            delay_ms: Delay between repeats in milliseconds (default: 100)
         """
         await self._ensure_initialized()
         await self._ble.write_handle_any(handle, data, response=response,
@@ -301,7 +328,13 @@ class SolamagicClient:
                             response: bool=False) -> None:
         """
         Write via UUID.
+        
         Used by solamagic.write_uuid service.
+        
+        Args:
+            char_uuid: Characteristic UUID string
+            data: Raw bytes to write
+            response: Whether to wait for response (default: False)
         """
         await self._ensure_initialized()
         await self._ble.write_uuid_simple(char_uuid, data, response=response)

@@ -58,6 +58,9 @@ class SolamagicBleClient:
         
         This helps filter out stale status notifications that arrive
         after we've already updated to the commanded level.
+        
+        Args:
+            level: Expected power level in percent (0, 33, 66, or 100)
         """
         import time
         self._expected_level = level
@@ -65,7 +68,12 @@ class SolamagicBleClient:
         _LOGGER.debug("Set expected level: %d%% (will ignore different values for 1 second)", level)
 
     def set_status_callback(self, callback: Callable[[int], None]) -> None:
-        """Register callback for status updates"""
+        """
+        Register callback for status updates.
+        
+        Args:
+            callback: Function that accepts power level (int) as argument
+        """
         self._status_callback = callback
 
     def _schedule_auto_disconnect(self) -> None:
@@ -299,6 +307,10 @@ class SolamagicBleClient:
     async def write_cccd(self, handle: int, value: bytes) -> None:
         """
         Write to CCCD (Client Characteristic Configuration Descriptor).
+        
+        Args:
+            handle: CCCD handle number (decimal)
+            value: Bytes to write (typically 0x0100 to enable notifications)
         """
         async with self._lock:
             client = await self._ensure_connected()
@@ -343,6 +355,12 @@ class SolamagicBleClient:
                               repeat: int=1, delay_ms: int=100) -> None:
         """
         Write to handle 0x0028 (command characteristic).
+        
+        Args:
+            data: Raw bytes to write
+            response: Whether to wait for response (default: False)
+            repeat: Number of times to repeat command (default: 1)
+            delay_ms: Delay between repeats in milliseconds (default: 100)
         """
         async with self._lock:
             client = await self._ensure_connected()
@@ -366,7 +384,16 @@ class SolamagicBleClient:
     async def write_handle_any(self, handle: int, data: bytes,
                               response: bool=True, repeat: int=1,
                               delay_ms: int=100) -> None:
-        """Write to arbitrary handle"""
+        """
+        Write to arbitrary handle.
+        
+        Args:
+            handle: GATT handle number (decimal)
+            data: Raw bytes to write
+            response: Whether to wait for response (default: True)
+            repeat: Number of times to repeat command (default: 1)
+            delay_ms: Delay between repeats in milliseconds (default: 100)
+        """
         async with self._lock:
             client = await self._ensure_connected()
 
@@ -391,7 +418,14 @@ class SolamagicBleClient:
 
     async def write_uuid_simple(self, char_uuid: str, data: bytes,
                                response: bool = False) -> None:
-        """Write to characteristic via UUID"""
+        """
+        Write to characteristic via UUID.
+        
+        Args:
+            char_uuid: Characteristic UUID string
+            data: Raw bytes to write
+            response: Whether to wait for response (default: False)
+        """
         async with self._lock:
             client = await self._ensure_connected()
 
@@ -408,6 +442,12 @@ class SolamagicBleClient:
                 raise _as_ha_error(err, "Bluetooth UUID write failed")
 
     async def disconnect(self) -> None:
+        """
+        Disconnect from the Bluetooth device.
+        
+        Cancels any pending auto-disconnect timer and cleanly closes
+        the Bluetooth connection.
+        """
         async with self._lock:
             if self._disconnect_timer:
                 self._disconnect_timer.cancel()
