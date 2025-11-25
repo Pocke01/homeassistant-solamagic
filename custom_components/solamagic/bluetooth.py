@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import binascii
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from bleak_retry_connector import (
     BleakClientWithServiceCache,
@@ -43,13 +43,13 @@ class SolamagicBleClient:
     def __init__(self, hass: HomeAssistant, address: str) -> None:
         self.hass = hass
         self.address = address.upper()
-        self._client: Optional[BleakClientWithServiceCache] = None
+        self._client: BleakClientWithServiceCache | None = None
         self._lock = asyncio.Lock()
-        self._status_callback: Optional[Callable[[int], None]] = None
-        self._confirmation_callback: Optional[Callable[[bytes], None]] = None
-        self._disconnect_timer: Optional[asyncio.TimerHandle] = None
+        self._status_callback: Callable[[int], None] | None = None
+        self._confirmation_callback: Callable[[bytes], None] | None = None
+        self._disconnect_timer: asyncio.TimerHandle | None = None
         self._disconnect_timeout = DISCONNECT_TIMEOUT
-        self._expected_level: Optional[int] = None  # Expected level after command
+        self._expected_level: int | None = None  # Expected level after command
         self._expected_level_time: float = 0  # When we set expected level
 
     def set_expected_level(self, level: int) -> None:
@@ -168,7 +168,7 @@ class SolamagicBleClient:
 
         return self._client
 
-    def _parse_status(self, data: bytes) -> Optional[int]:
+    def _parse_status(self, data: bytes) -> int | None:
         """
         Parse status from handle 0x0032 notifications.
 
