@@ -37,7 +37,7 @@ def _as_ha_error(err: Any, prefix: str) -> HomeAssistantError:
     return HomeAssistantError(f"{prefix}: {msg}")
 
 def _hex(b: bytes) -> str:
-    return binascii.hexlify(b).decode()
+    return binascii.hexlify(b).decode("utf-8")
 
 class SolamagicBleClient:
     def __init__(self, hass: HomeAssistant, address: str) -> None:
