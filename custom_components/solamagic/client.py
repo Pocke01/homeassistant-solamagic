@@ -4,11 +4,21 @@ import asyncio
 from homeassistant.core import HomeAssistant
 from .bluetooth import SolamagicBleClient
 from .const import (
-    CMD_OFF, CMD_ON_33, CMD_ON_66, CMD_ON_100,
-    CHAR_CMD_F001, CHAR_ALT_F002, CONF_WRITE_MODE,
-    CCCD_CMD, CCCD_NTF1, CCCD_NTF2,
-    INIT_DELAY_MS, CCCD_ENABLE_DELAY_MS, CMD_CONFIRMATION_DELAY_MS,
-    CMD_OFF_REPEAT_COUNT, CMD_OFF_DELAY_MS
+    CCCD_CMD,
+    CCCD_ENABLE_DELAY_MS,
+    CCCD_NTF1,
+    CCCD_NTF2,
+    CHAR_ALT_F002,
+    CHAR_CMD_F001,
+    CMD_CONFIRMATION_DELAY_MS,
+    CMD_OFF,
+    CMD_OFF_DELAY_MS,
+    CMD_OFF_REPEAT_COUNT,
+    CMD_ON_100,
+    CMD_ON_33,
+    CMD_ON_66,
+    CONF_WRITE_MODE,
+    INIT_DELAY_MS,
 )
 
 _LOGGER = logging.getLogger(__name__)

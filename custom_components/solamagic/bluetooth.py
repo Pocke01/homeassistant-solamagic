@@ -1,13 +1,27 @@
 from __future__ import annotations
-import asyncio, logging, binascii
-from typing import Optional, Any, Callable
-from bleak_retry_connector import establish_connection, close_stale_connections, BleakClientWithServiceCache
-from homeassistant.core import HomeAssistant, callback
+import asyncio
+import binascii
+import logging
+from typing import Any, Callable, Optional
+
+from bleak_retry_connector import (
+    BleakClientWithServiceCache,
+    close_stale_connections,
+    establish_connection,
+)
 from homeassistant.components import bluetooth
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+
 from .const import (
-    HANDLE_CMD, HANDLE_NTF1, HANDLE_NTF2, HANDLE_INIT, INIT_PAYLOAD,
-    STATUS_MIN_LENGTH, STATUS_POWER_BYTE, STATUS_LEVEL_BYTE
+    HANDLE_CMD,
+    HANDLE_INIT,
+    HANDLE_NTF1,
+    HANDLE_NTF2,
+    INIT_PAYLOAD,
+    STATUS_LEVEL_BYTE,
+    STATUS_MIN_LENGTH,
+    STATUS_POWER_BYTE,
 )
 _LOGGER = logging.getLogger(__name__)
 

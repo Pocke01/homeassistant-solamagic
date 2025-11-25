@@ -1,22 +1,24 @@
 """The Solamagic integration."""
 from __future__ import annotations
-import logging
 import binascii
-import voluptuous as vol
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.typing import ConfigType
-from homeassistant.helpers import device_registry as dr
-from homeassistant.exceptions import HomeAssistantError
-import homeassistant.helpers.config_validation as cv
+import logging
 
+import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.typing import ConfigType
+
+from .client import SolamagicClient
 from .const import (
-    DOMAIN,
     CONF_ADDRESS,
     CONF_COMMAND_CHAR,
     CONF_WRITE_MODE,
+    DOMAIN,
 )
-from .client import SolamagicClient
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[str] = ["climate", "sensor"]
