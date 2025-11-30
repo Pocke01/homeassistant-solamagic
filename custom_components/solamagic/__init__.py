@@ -14,8 +14,8 @@ from homeassistant.helpers.typing import ConfigType
 
 from .client import SolamagicClient
 from .const import (
-    CONF_ADDRESS,
     CONF_COMMAND_CHAR,
+    CONF_INIT_TOKEN,
     CONF_WRITE_MODE,
     DOMAIN,
 )
@@ -140,10 +140,23 @@ async def async_setup_entry(
     client = SolamagicClient(hass, entry, write_mode, cmd_char)
     hass.data[DOMAIN][entry.entry_id] = client
 
-    _LOGGER.info(
-        "Setup Solamagic %s (entry_id=%s, write_mode=%s)",
-        address, entry.entry_id, write_mode
-    )
+    _LOGGER.info("Setup Solamagic %s (entry_id=%s, write_mode=%s)", address, entry.entry_id, write_mode)
+
+    # --- NEW: Log init-token at setup time (from handle 0x001F) and store  ---
+    try:
+        init_value = await client._ble.read_init_token()
+        if init_value and any(init_value):
+            hex_value = init_value.hex()
+            _LOGGER.info("[%s] Init-token read during setup from handle 0x001F: %s", address, hex_value)
+
+            # Spara i config entry om det inte redan är samma värde
+            if entry.data.get(CONF_INIT_TOKEN) != hex_value:
+                new_data = {**entry.data, CONF_INIT_TOKEN: hex_value}
+                hass.config_entries.async_update_entry(entry, data=new_data)
+                _LOGGER.info("[%s] Stored init-token in config entry: %s", address, hex_value)
+    except Exception as err:
+        _LOGGER.error("[%s] Failed to read/store init-token during setup: %s", address, err)
+    # --- END NEW ---
 
     await hass.config_entries.async_forward_entry_setups(
         entry, PLATFORMS
