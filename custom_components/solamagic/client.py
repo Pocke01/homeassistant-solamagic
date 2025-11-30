@@ -64,7 +64,7 @@ class SolamagicClient:
         try:
             await self._ble.write_cccd(CCCD_NTF1, bytes([0x01, 0x00]))
             _LOGGER.debug("CCCD 0x%04X enabled (notifications)", CCCD_NTF1)
-        except Exception as e:
+        except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_NTF1, e)
 
         await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
@@ -75,7 +75,7 @@ class SolamagicClient:
         try:
             await self._ble.write_cccd(CCCD_NTF2, bytes([0x01, 0x00]))
             _LOGGER.debug("CCCD 0x%04X enabled (notifications)", CCCD_NTF2)
-        except Exception as e:
+        except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_NTF2, e)
 
         await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
@@ -86,7 +86,7 @@ class SolamagicClient:
         try:
             await self._ble.write_cccd(CCCD_CMD, bytes([0x01, 0x00]))
             _LOGGER.debug("CCCD 0x%04X enabled (notifications)", CCCD_CMD)
-        except Exception as e:
+        except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
             _LOGGER.warning("Could not enable CCCD 0x%04X: %s", CCCD_CMD, e)
 
         await asyncio.sleep(CCCD_ENABLE_DELAY_MS * 2 / 1000)
@@ -199,7 +199,7 @@ class SolamagicClient:
                 try:
                     self._ble._status_callback(0)
                     _LOGGER.info("Updated status to 0% (OFF confirmed)")
-                except Exception as e:
+                except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("Status callback error: %s", e)
 
         elif pct == 33:
@@ -225,7 +225,7 @@ class SolamagicClient:
                 try:
                     self._ble._status_callback(33)
                     _LOGGER.info("Updated status to 33% (command confirmed)")
-                except Exception as e:
+                except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("Status callback error: %s", e)
 
         elif pct == 66:
@@ -251,7 +251,7 @@ class SolamagicClient:
                 try:
                     self._ble._status_callback(66)
                     _LOGGER.info("Updated status to 66% (command confirmed)")
-                except Exception as e:
+                except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("Status callback error: %s", e)
 
         elif pct == 100:
@@ -277,7 +277,7 @@ class SolamagicClient:
                 try:
                     self._ble._status_callback(100)
                     _LOGGER.info("Updated status to 100% (command confirmed)")
-                except Exception as e:
+                except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("Status callback error: %s", e)
 
     async def off(self) -> None:

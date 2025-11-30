@@ -4,6 +4,7 @@ import binascii
 import logging
 from typing import Any, Callable
 
+from bleak import BleakError
 from bleak_retry_connector import (
     BleakClientWithServiceCache,
     close_stale_connections,
@@ -32,7 +33,7 @@ DISCONNECT_TIMEOUT = 180  # 180 = 3 min, 300 = 5 min, 60 = 1 min
 def _as_ha_error(err: Any, prefix: str) -> HomeAssistantError:
     try:
         msg = str(err)
-    except Exception:
+    except Exception:  # Catch-all needed: str() can fail on malformed errors
         msg = repr(err)
     return HomeAssistantError(f"{prefix}: {msg}")
 
@@ -129,7 +130,7 @@ class SolamagicBleClient:
                     f"BLE device not found or not connectable: {self.address}"
                 )
             return dev
-        except Exception as err:
+        except (BleakError, TimeoutError) as err:
             raise _as_ha_error(err, "Bluetooth device lookup failed")
 
     async def _ensure_connected(self) -> BleakClientWithServiceCache:
@@ -143,7 +144,7 @@ class SolamagicBleClient:
 
         try:
             await close_stale_connections(self.address)
-        except Exception as err:
+        except Exception as err:  # Broad catch OK: cleanup operation, log and continue
             _LOGGER.debug("close_stale_connections warning: %s", err)
 
         _LOGGER.info("Connecting to %s...", self.address)
@@ -155,7 +156,7 @@ class SolamagicBleClient:
                 self.address,
                 disconnected_callback=self._handle_disconnect
             )
-        except Exception as err:
+        except (BleakError, TimeoutError, OSError) as err:
             raise _as_ha_error(err, "Bluetooth connect failed")
 
         _LOGGER.info("Connected to %s", self.address)
@@ -168,7 +169,7 @@ class SolamagicBleClient:
             try:
                 await self._client.start_notify(h, self._notification_handler)
                 _LOGGER.info("Started notify on handle %#06x", h)
-            except Exception as e:
+            except (BleakError, AttributeError) as e:
                 _LOGGER.warning("Could not start notify on %#06x: %s", h, e)
 
         # FIX: Schedule timer OUTSIDE lock context (after connection established)
@@ -249,7 +250,7 @@ class SolamagicBleClient:
             if self._confirmation_callback:
                 try:
                     self._confirmation_callback(data_bytes)
-                except Exception as e:
+                except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("Confirmation callback error: %s", e)
 
         elif data_len >= 15:
@@ -283,7 +284,7 @@ class SolamagicBleClient:
                 if self._status_callback:
                     try:
                         self._status_callback(level)
-                    except Exception as e:
+                    except Exception as e:  # Broad catch OK: user callback, log and continue
                         _LOGGER.error("Status callback error: %s", e)
             else:
                 _LOGGER.debug("Could not parse level from status data")
@@ -320,12 +321,12 @@ class SolamagicBleClient:
             try:
                 await client.write_gatt_descriptor(handle, value)
                 _LOGGER.debug("CCCD write successful (descriptor method)")
-            except Exception as e1:
+            except (BleakError, AttributeError) as e1:
                 _LOGGER.debug("Descriptor write failed: %s, trying char method...", e1)
                 try:
                     await client.write_gatt_char(handle, value, response=True)
                     _LOGGER.debug("CCCD write successful (char method)")
-                except Exception as e2:
+                except (BleakError, AttributeError) as e2:
                     # FIX: Log warning instead of silent pass
                     _LOGGER.warning(
                         "Both CCCD write methods failed for handle %#06x: desc=%s, char=%s",
@@ -347,7 +348,7 @@ class SolamagicBleClient:
                 await client.write_gatt_char(HANDLE_INIT, INIT_PAYLOAD, response=True)
                 _LOGGER.info("Initialization sequence successful")
                 await asyncio.sleep(0.1)
-            except Exception as e:
+            except (BleakError, AttributeError) as e:
                 _LOGGER.error("Failed to write initialization sequence: %s", e)
                 raise _as_ha_error(e, "Initialization failed")
 
@@ -373,7 +374,7 @@ class SolamagicBleClient:
 
                 try:
                     await client.write_gatt_char(HANDLE_CMD, data, response=response)
-                except Exception as e:
+                except (BleakError, AttributeError) as e:
                     _LOGGER.error("Write failed on attempt %d: %s", i+1, e)
                     if i == 0:
                         raise
@@ -405,7 +406,7 @@ class SolamagicBleClient:
 
                 try:
                     await client.write_gatt_char(handle, data, response=response)
-                except Exception as e:
+                except (BleakError, AttributeError) as e:
                     _LOGGER.error("Write to handle %#06x failed: %s", handle, e)
                     if i == 0:
                         raise
@@ -437,7 +438,7 @@ class SolamagicBleClient:
             try:
                 await client.write_gatt_char(char_uuid, data, response=response)
                 _LOGGER.debug("UUID write successful")
-            except Exception as err:
+            except (BleakError, AttributeError, ValueError) as err:
                 _LOGGER.error("Failed to write to UUID %s: %r", char_uuid, err)
                 raise _as_ha_error(err, "Bluetooth UUID write failed")
 
@@ -457,6 +458,6 @@ class SolamagicBleClient:
                 try:
                     _LOGGER.info("Disconnecting from %s", self.address)
                     await self._client.disconnect()
-                except Exception as e:
+                except Exception as e:  # Broad catch OK: disconnect cleanup, log and continue
                     _LOGGER.debug("Disconnect error: %r", e)
             self._client = None

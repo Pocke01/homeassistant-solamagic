@@ -156,7 +156,7 @@ class SolamagicClimate(ClimateEntity):
                 self._client._ble._client and 
                 self._client._ble._client.is_connected):
                 return True
-        except Exception:
+        except Exception:  # Broad catch OK: availability check, safe fallback
             pass
         
         # Available if we have any known state (not just initial 0)
