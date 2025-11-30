@@ -38,13 +38,13 @@ def _get_entry_id_from_call(
 ) -> str | None:
     """
     Extract entry_id from service call.
-    
+
     Supports both direct entry_id and device_id lookup.
-    
+
     Args:
         hass: Home Assistant instance
         call: Service call containing either entry_id or device_id
-    
+
     Returns:
         Config entry ID if found, None otherwise
     """
@@ -52,7 +52,7 @@ def _get_entry_id_from_call(
     entry_id = call.data.get("entry_id")
     if isinstance(entry_id, str):
         return entry_id
-    
+
     # Device_id provided - look up entry_id
     device_id = call.data.get("device_id")
     if device_id:
@@ -63,7 +63,7 @@ def _get_entry_id_from_call(
             for entry_id in device.config_entries:
                 if entry_id in hass.data.get(DOMAIN, {}):
                     return entry_id
-    
+
     return None
 
 
@@ -137,7 +137,7 @@ async def async_setup_entry(
         entry.data.get(CONF_COMMAND_CHAR)
     )
 
-    client = SolamagicClient(hass, address, write_mode, cmd_char)
+    client = SolamagicClient(hass, entry, write_mode, cmd_char)
     hass.data[DOMAIN][entry.entry_id] = client
 
     _LOGGER.info(
@@ -161,7 +161,7 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
-            
+
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
             _LOGGER.error(
@@ -173,12 +173,12 @@ async def async_setup_entry(
                 f"Device with entry_id '{entry_id}' not found. "
                 "The device may have been removed or is not configured."
             )
-        
+
         _LOGGER.debug(
             "write_handle service called: payload=%s, entry_id=%s",
             call.data["payload_hex"], entry_id
         )
-        
+
         try:
             await client.write_handle_raw(
                 _b(call.data["payload_hex"]),
@@ -206,7 +206,7 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
-            
+
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
             _LOGGER.error(
@@ -218,12 +218,12 @@ async def async_setup_entry(
                 f"Device with entry_id '{entry_id}' not found. "
                 "The device may have been removed or is not configured."
             )
-        
+
         _LOGGER.debug(
             "write_handle_any service called: handle=0x%04X, payload=%s, entry_id=%s",
             call.data["handle"], call.data["payload_hex"], entry_id
         )
-        
+
         try:
             await client.write_handle_any(
                 call.data["handle"],
@@ -252,7 +252,7 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
-            
+
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
             _LOGGER.error(
@@ -263,12 +263,12 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found."
             )
-        
+
         _LOGGER.debug(
             "write_uuid service called: uuid=%s, payload=%s, entry_id=%s",
             call.data["char_uuid"], call.data["payload_hex"], entry_id
         )
-        
+
         try:
             await client.write_uuid_raw(
                 call.data["char_uuid"],
@@ -287,7 +287,7 @@ async def async_setup_entry(
     async def _svc_set_level(call: ServiceCall) -> None:
         """
         Handle set_level service call.
-        
+
         Sets heater to 0%, 33%, 66%, or 100%.
         """
         entry_id = _get_entry_id_from_call(hass, call)
@@ -299,7 +299,7 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
-            
+
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
             _LOGGER.error(
@@ -310,16 +310,16 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found."
             )
-            
+
         lvl = call.data['level']
         if isinstance(lvl, str):
             lvl = int(lvl)
-        
+
         _LOGGER.debug(
             "set_level service called: level=%d%%, entry_id=%s",
             lvl, entry_id
         )
-        
+
         try:
             await client.set_level(lvl)
         except Exception as err:
@@ -342,7 +342,7 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 "No device specified. Please select a device or provide entry_id."
             )
-            
+
         client = hass.data[DOMAIN].get(entry_id)
         if not client:
             _LOGGER.error(
@@ -353,9 +353,9 @@ async def async_setup_entry(
             raise HomeAssistantError(
                 f"Device with entry_id '{entry_id}' not found."
             )
-        
+
         _LOGGER.debug("disconnect service called: entry_id=%s", entry_id)
-        
+
         try:
             await client.disconnect()
         except Exception as err:
@@ -404,10 +404,10 @@ async def async_unload_entry(
     client: SolamagicClient | None = hass.data.get(
         DOMAIN, {}
     ).pop(entry.entry_id, None)
-    
+
     if client:
         await client.disconnect()
-        
+
     unload_ok = await hass.config_entries.async_unload_platforms(
         entry, PLATFORMS
     )
