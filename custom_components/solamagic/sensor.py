@@ -5,27 +5,26 @@ import logging
 from datetime import timedelta
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
-    SensorDeviceClass,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.entity import EntityCategory
 
-from .const import DOMAIN, get_device_info
+from .const import DOMAIN, CONF_DEVICE_INFO, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
 # Polling interval for status updates
 POLL_INTERVAL = timedelta(minutes=1)
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -37,9 +36,9 @@ async def async_setup_entry(
     name = entry.title or entry.data.get("address") or "Solamagic"
 
     sensors = [
-        SolamagicPowerSensor(client, name, entry.entry_id),
-        SolamagicRSSISensor(client, name, entry.entry_id),
-        SolamagicConnectionSensor(client, name, entry.entry_id),
+        SolamagicPowerSensor(client, name, entry),
+        SolamagicRSSISensor(client, name, entry),
+        SolamagicConnectionSensor(client, name, entry),
     ]
 
     async_add_entities(sensors, True)
@@ -59,35 +58,33 @@ class SolamagicPowerSensor(SensorEntity):
     _attr_icon = "mdi:radiator"
     _attr_suggested_display_precision = 0
 
-    def __init__(self, client, name: str, unique_id: str) -> None:
+    def __init__(self, client, name: str, entry: ConfigEntry) -> None:
         """
         Initialize the power sensor.
 
         Args:
             client: SolamagicClient instance
-            name: Entity name
-            unique_id: Unique identifier
+            name: Entity name (from entry.title)
+            entry: Config entry
         """
         self._client = client
-        self._attr_name = "Power Level"
-        self._attr_unique_id = f"{unique_id}-power"
+        self._attr_name = "Power Level"  # Suffix added to device name
+        self._attr_unique_id = f"{entry.entry_id}-power"
         self._address = getattr(client._ble, "address", None)
+        self._entry_title = name  # Save for get_device_info
+        self._device_info_dict = entry.data.get(CONF_DEVICE_INFO)
 
         # Current state
         self._attr_native_value = 0
         self._polling = False
         self._cancel_poll = None
 
-        _LOGGER.debug(
-            "Initialized power sensor: %s (poll interval=%s)",
-            name,
-            POLL_INTERVAL,
-        )
+        _LOGGER.debug("[%s] Initialized power sensor: %s (poll interval=%s)", self._address, name, POLL_INTERVAL)
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address)
+        return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     @property
     def extra_state_attributes(self):
@@ -133,7 +130,7 @@ class SolamagicPowerSensor(SensorEntity):
         Args:
             level: Power level in percent (0, 33, 66, 100)
         """
-        _LOGGER.debug("Real-time status update: %d%%", level)
+        _LOGGER.debug("[%s] Real-time status update: %d%%", self._address, level)
         self._attr_native_value = level
         self.async_write_ha_state()
 
@@ -148,13 +145,13 @@ class SolamagicPowerSensor(SensorEntity):
             now: Current time (from async_track_time_interval)
         """
         if self._polling:
-            _LOGGER.debug("Poll already in progress, skipping")
+            _LOGGER.debug("[%s] Poll already in progress, skipping", self._address)
             return
 
         self._polling = True
 
         try:
-            _LOGGER.debug("Polling status from heater...")
+            _LOGGER.debug("[%s] Polling status from heater...", self._address)
 
             received_status = None
 
@@ -162,7 +159,7 @@ class SolamagicPowerSensor(SensorEntity):
                 """Temporary callback to capture polled status."""
                 nonlocal received_status
                 received_status = level
-                _LOGGER.debug("Polled status: %d%%", level)
+                _LOGGER.debug("[%s] Polled status: %d%%", self._address, level)
 
             # Temporarily replace callback
             old_callback = self._client._ble._status_callback
@@ -180,11 +177,9 @@ class SolamagicPowerSensor(SensorEntity):
                 if received_status is not None:
                     self._attr_native_value = received_status
                     self._last_poll = self.hass.loop.time()
-                    _LOGGER.info("✓ Polled status: %d%%", received_status)
+                    _LOGGER.info("[%s] Polled status: %d%%", self._address, received_status)
                 else:
-                    _LOGGER.warning(
-                        "No status received during poll (timeout)"
-                    )
+                    _LOGGER.warning("[%s] No status received during poll (timeout)", self._address)
 
             finally:
                 # Restore original callback
@@ -193,12 +188,12 @@ class SolamagicPowerSensor(SensorEntity):
             # Short delay before disconnect
             await asyncio.sleep(0.5)
             await self._client.disconnect()
-            _LOGGER.debug("Disconnected after poll (allows app access)")
+            _LOGGER.debug("[%s] Disconnected after poll (allows app access)", self._address)
 
             self.async_write_ha_state()
 
         except Exception as e:
-            _LOGGER.error("Status polling failed: %s", e)
+            _LOGGER.error("[%s] Status polling failed: %s", self._address, e)
 
         finally:
             self._polling = False
@@ -219,25 +214,27 @@ class SolamagicRSSISensor(SensorEntity):
     _attr_icon = "mdi:wifi"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, client, name: str, unique_id: str) -> None:
+    def __init__(self, client, name: str, entry: ConfigEntry) -> None:
         """
         Initialize the RSSI sensor.
 
         Args:
             client: SolamagicClient instance
-            name: Entity name
-            unique_id: Unique identifier
+            name: Entity name (from entry.title)
+            entry: Config entry
         """
         self._client = client
-        self._attr_name = "Signal Strength"
-        self._attr_unique_id = f"{unique_id}-rssi"
+        self._attr_name = "Signal Strength"  # Suffix added to device name
+        self._attr_unique_id = f"{entry.entry_id}-rssi"
         self._address = getattr(client._ble, "address", None)
         self._attr_native_value = None
+        self._entry_title = name  # Save for get_device_info
+        self._device_info_dict = entry.data.get(CONF_DEVICE_INFO)
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address)
+        return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     async def async_update(self) -> None:
         """
@@ -256,35 +253,23 @@ class SolamagicRSSISensor(SensorEntity):
 
             if service_info and service_info.rssi is not None:
                 self._attr_native_value = service_info.rssi
-                _LOGGER.debug(
-                    "RSSI updated: %d dBm from %s",
-                    service_info.rssi,
-                    service_info.name,
-                )
+                _LOGGER.debug("[%s] RSSI updated: %d dBm from %s", self._address, service_info.rssi, service_info.name)
             else:
-                _LOGGER.debug(
-                    "No RSSI service info available for %s", self._address
-                )
+                _LOGGER.debug("[%s] No RSSI service info available", self._address)
                 # Try alternative method
                 device = bluetooth.async_ble_device_from_address(
                     self.hass, self._address, connectable=False
                 )
                 if device:
-                    _LOGGER.debug(
-                        "Found device via address lookup: %s, RSSI: %s",
-                        device.name,
-                        getattr(device, "rssi", "N/A"),
-                    )
+                    _LOGGER.debug("[%s] Found device via address lookup: %s, RSSI: %s", self._address, device.name, getattr(device, "rssi", "N/A"))
                     if hasattr(device, "rssi") and device.rssi is not None:
                         self._attr_native_value = device.rssi
-                        _LOGGER.debug(
-                            "RSSI updated from device: %d dBm", device.rssi
-                        )
+                        _LOGGER.debug("[%s] RSSI updated from device: %d dBm", self._address, device.rssi)
                 else:
                     _LOGGER.debug("No device found for %s", self._address)
 
         except Exception as e:
-            _LOGGER.warning("Could not get RSSI: %s", e, exc_info=True)
+            _LOGGER.warning("[%s] Could not get RSSI: %s", self._address, e, exc_info=True)
 
 
 class SolamagicConnectionSensor(SensorEntity):
@@ -299,26 +284,28 @@ class SolamagicConnectionSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_should_poll = False  # We update via callbacks instead
 
-    def __init__(self, client, name: str, unique_id: str) -> None:
+    def __init__(self, client, name: str, entry: ConfigEntry) -> None:
         """
         Initialize the connection sensor.
 
         Args:
             client: SolamagicClient instance
-            name: Entity name
-            unique_id: Unique identifier
+            name: Entity name (from entry.title)
+            entry: Config entry
         """
         self._client = client
-        self._attr_name = "Connection Status"
-        self._attr_unique_id = f"{unique_id}-connection"
+        self._attr_name = "Connection Status"  # Suffix added to device name
+        self._attr_unique_id = f"{entry.entry_id}-connection"
         self._address = getattr(client._ble, "address", None)
         self._attr_native_value = "disconnected"
         self._remove_listener = None
+        self._entry_title = name  # Save for get_device_info
+        self._device_info_dict = entry.data.get(CONF_DEVICE_INFO)
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address)
+        return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     @property
     def extra_state_attributes(self):
@@ -337,7 +324,7 @@ class SolamagicConnectionSensor(SensorEntity):
                 attrs["has_client"] = False
                 attrs["is_connected"] = False
         except Exception as e:
-            _LOGGER.debug("Could not get client info: %s", e)
+            _LOGGER.debug("[%s] Could not get client info: %s", self._address, e)
             attrs["error"] = str(e)
 
         return attrs
@@ -365,15 +352,11 @@ class SolamagicConnectionSensor(SensorEntity):
 
                 # Only update if status changed
                 if old_value != self._attr_native_value:
-                    _LOGGER.info(
-                        "Connection status changed: %s → %s",
-                        old_value,
-                        self._attr_native_value,
-                    )
+                    _LOGGER.info("[%s] Connection status changed: %s → %s", self._address, old_value, self._attr_native_value)
                     self.async_write_ha_state()
 
             except Exception as e:
-                _LOGGER.debug("Could not check connection status: %s", e)
+                _LOGGER.debug("[%s] Could not check connection status: %s", self._address, e)
 
         # Run check every second
         self._remove_listener = async_track_time_interval(

@@ -1,6 +1,7 @@
 """Config flow for Solamagic integration."""
 from __future__ import annotations
 from typing import Any
+import logging
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -14,9 +15,12 @@ from .const import (
     CONF_COMMAND_CHAR,
     CONF_DEFAULT_ON_LEVEL,
     CONF_WRITE_MODE,
+    CONF_DEVICE_INFO,
     CHAR_CMD_F001,
     format_device_name,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 DEFAULTS = {
     CONF_COMMAND_CHAR: CHAR_CMD_F001,
@@ -87,6 +91,60 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         placeholders = self.context.get("title_placeholders", {})
 
         if user_input is not None:
+            # Read device info from BLE Device Information Service
+            device_info_dict = {}
+            try:
+                from homeassistant.components import bluetooth
+                from bleak import BleakClient
+                
+                _LOGGER.info("Reading device info from BLE Device Information Service for %s", self._discovery_info.address)
+                
+                device = bluetooth.async_ble_device_from_address(
+                    self.hass, self._discovery_info.address, connectable=True
+                )
+                
+                if device:
+                    async with BleakClient(device) as client:
+                        # Read Device Information Service characteristics
+                        # Standard UUIDs from Bluetooth SIG
+                        try:
+                            # Manufacturer Name (0x2A29)
+                            mfr = await client.read_gatt_char("00002a29-0000-1000-8000-00805f9b34fb")
+                            device_info_dict["manufacturer"] = mfr.decode("utf-8").strip()
+                            _LOGGER.info("Read manufacturer: %s", device_info_dict["manufacturer"])
+                        except Exception as e:
+                            _LOGGER.debug("Could not read manufacturer: %s", e)
+                        
+                        try:
+                            # Model Number (0x2A24)
+                            model = await client.read_gatt_char("00002a24-0000-1000-8000-00805f9b34fb")
+                            device_info_dict["model"] = model.decode("utf-8").strip()
+                            _LOGGER.info("Read model: %s", device_info_dict["model"])
+                        except Exception as e:
+                            _LOGGER.debug("Could not read model: %s", e)
+                        
+                        try:
+                            # Hardware Revision (0x2A27)
+                            hw = await client.read_gatt_char("00002a27-0000-1000-8000-00805f9b34fb")
+                            device_info_dict["hw_version"] = hw.decode("utf-8").strip()
+                            _LOGGER.info("Read hardware: %s", device_info_dict["hw_version"])
+                        except Exception as e:
+                            _LOGGER.debug("Could not read hardware: %s", e)
+                        
+                        try:
+                            # Firmware Revision (0x2A26)
+                            fw = await client.read_gatt_char("00002a26-0000-1000-8000-00805f9b34fb")
+                            device_info_dict["sw_version"] = fw.decode("utf-8").strip()
+                            _LOGGER.info("Read firmware: %s", device_info_dict["sw_version"])
+                        except Exception as e:
+                            _LOGGER.debug("Could not read firmware: %s", e)
+                else:
+                    _LOGGER.warning("Could not get BLE device for address %s", self._discovery_info.address)
+                            
+            except Exception as e:
+                # Device info is optional, continue without it
+                _LOGGER.warning("Failed to read device info: %s", e, exc_info=True)
+            
             # Create entry with discovered info
             # Use device name from placeholders (e.g., "2000BT-8B6C36")
             title = placeholders.get("name", "Solamagic 2000BT")
@@ -95,6 +153,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_NAME: title,
                 **DEFAULTS,
             }
+            
+            # Add device info if we got any
+            if device_info_dict:
+                data[CONF_DEVICE_INFO] = device_info_dict
+                _LOGGER.info("Saving device info to config entry: %s", device_info_dict)
+            else:
+                _LOGGER.warning("No device info was read, using defaults")
+            
             return self.async_create_entry(title=title, data=data)
 
         # Show confirmation form
