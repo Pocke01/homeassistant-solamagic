@@ -92,11 +92,7 @@ class SolamagicClimate(ClimateEntity):
         # Register callback for status updates from heater
         self._client._ble.set_status_callback(self._handle_status_update)
 
-        _LOGGER.debug(
-            "Initialized Solamagic climate entity: %s (unique_id=%s)",
-            self._entry_title,
-            self._attr_unique_id,
-        )
+        _LOGGER.debug("[%s] Initialized Solamagic climate entity: %s (unique_id=%s)", self._address, self._entry_title, self._attr_unique_id)
 
     @property
     def device_info(self):
@@ -118,12 +114,10 @@ class SolamagicClimate(ClimateEntity):
             if new_state and new_state.state not in (None, "unknown", "unavailable"):
                 try:
                     level = int(float(new_state.state))
-                    _LOGGER.debug(
-                        "Climate updating from sensor state change: %d%%", level
-                    )
+                    _LOGGER.debug("[%s] Climate updating from sensor state change: %d%%", self._address, level)
                     self._handle_status_update(level)
                 except (ValueError, TypeError) as e:
-                    _LOGGER.debug("Could not parse sensor state: %s", e)
+                    _LOGGER.debug("[%s] Could not parse sensor state: %s", self._address, e)
 
         # Track sensor state changes
         self.async_on_remove(
@@ -134,31 +128,29 @@ class SolamagicClimate(ClimateEntity):
             )
         )
 
-        _LOGGER.debug(
-            "Climate entity now listening to sensor: %s", sensor_entity_id
-        )
+        _LOGGER.debug("[%s] Climate entity now listening to sensor: %s", self._address, sensor_entity_id)
 
     @property
     def available(self) -> bool:
         """
         Return if entity is available.
-        
+
         Entity is available if:
         - Currently connected to the device, OR
         - We have a last known state (not initial state)
-        
+
         This allows the entity to remain available between connections
         while showing last known state.
         """
         # Check if actively connected
         try:
-            if (hasattr(self._client._ble, '_client') and 
-                self._client._ble._client and 
+            if (hasattr(self._client._ble, '_client') and
+                self._client._ble._client and
                 self._client._ble._client.is_connected):
                 return True
         except Exception:  # Broad catch OK: availability check, safe fallback
             pass
-        
+
         # Available if we have any known state (not just initial 0)
         # This allows showing last state even when disconnected
         return hasattr(self, '_current_level')
@@ -201,12 +193,7 @@ class SolamagicClimate(ClimateEntity):
 
         # Log and update state if something changed
         if old_level != level or old_mode != self._attr_hvac_mode:
-            _LOGGER.info(
-                "Climate status updated: %d%% (mode=%s, preset=%s)",
-                level,
-                self._attr_hvac_mode,
-                self._attr_preset_mode,
-            )
+            _LOGGER.info("[%s] Climate status updated: %d%% (mode=%s, preset=%s)", self._address, level, self._attr_hvac_mode, self._attr_preset_mode)
             # Only update state if entity is initialized
             if self.hass is not None:
                 self.async_write_ha_state()
@@ -226,7 +213,7 @@ class SolamagicClimate(ClimateEntity):
         Args:
             hvac_mode: Target HVAC mode (OFF or HEAT)
         """
-        _LOGGER.debug("Setting HVAC mode to: %s", hvac_mode)
+        _LOGGER.debug("[%s] Setting HVAC mode to: %s", self._address, hvac_mode)
 
         if hvac_mode == HVACMode.OFF:
             # Turn off
@@ -253,13 +240,11 @@ class SolamagicClimate(ClimateEntity):
             preset_mode: Target preset (low/medium/high)
         """
         if preset_mode not in PRESET_TO_LEVEL:
-            _LOGGER.error("Invalid preset mode: %s", preset_mode)
+            _LOGGER.error("[%s] Invalid preset mode: %s", self._address, preset_mode)
             return
 
         level = PRESET_TO_LEVEL[preset_mode]
-        _LOGGER.debug(
-            "Setting preset mode to: %s (%d%%)", preset_mode, level
-        )
+        _LOGGER.debug("[%s] Setting preset mode to: %s (%d%%)", self._address, preset_mode, level)
 
         await self._client.set_level(level)
 

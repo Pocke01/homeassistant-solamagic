@@ -89,10 +89,7 @@ class SolamagicBleClient:
             self._disconnect_timer.cancel()
 
         if self._client and self._client.is_connected:
-            _LOGGER.debug(
-                "Scheduling disconnect timer (%d seconds)",
-                self._disconnect_timeout
-            )
+            _LOGGER.debug("[%s] Scheduling disconnect timer (%d seconds)", self.address, self._disconnect_timeout)
             # FIX: Use proper method reference instead of lambda
             # This avoids task leak and makes cleanup easier
             self._disconnect_timer = self.hass.loop.call_later(
@@ -114,10 +111,7 @@ class SolamagicBleClient:
         Automatic disconnect after inactivity.
         This releases the connection so the xHeatlink app can connect.
         """
-        _LOGGER.info(
-            "Auto-disconnecting after %d seconds of inactivity (allows app access)",
-            self._disconnect_timeout
-        )
+        _LOGGER.info("[%s] Auto-disconnecting after %d seconds of inactivity (allows app access)", self.address, self._disconnect_timeout)
         await self.disconnect()
 
     async def _ble_device(self):
@@ -147,7 +141,7 @@ class SolamagicBleClient:
         except Exception as err:  # Broad catch OK: cleanup operation, log and continue
             _LOGGER.debug("[%s] close_stale_connections warning: %s", self.address, err)
 
-        _LOGGER.info("Connecting to %s...", self.address)
+        _LOGGER.info("[%s] Connecting...", self.address)
 
         try:
             self._client = await establish_connection(
@@ -159,7 +153,7 @@ class SolamagicBleClient:
         except (BleakError, TimeoutError, OSError) as err:
             raise _as_ha_error(err, "Bluetooth connect failed")
 
-        _LOGGER.info("Connected to %s", self.address)
+        _LOGGER.info("[%s] Connected", self.address)
 
         # Short pause after connection
         await asyncio.sleep(0.3)
@@ -299,7 +293,7 @@ class SolamagicBleClient:
 
     @callback
     def _handle_disconnect(self, client: BleakClientWithServiceCache) -> None:
-        _LOGGER.info("Disconnected from %s", self.address)
+        _LOGGER.info("[%s] Disconnected", self.address)
         if self._disconnect_timer:
             self._disconnect_timer.cancel()
             self._disconnect_timer = None
@@ -328,9 +322,7 @@ class SolamagicBleClient:
                     _LOGGER.debug("[%s] CCCD write successful (char method)", self.address)
                 except (BleakError, AttributeError) as e2:
                     # FIX: Log warning instead of silent pass
-                    _LOGGER.warning(
-                        "Both CCCD write methods failed for handle %#06x: desc=%s, char=%s",
-                        handle, e1, e2
+                    _LOGGER.warning("[%s] Both CCCD write methods failed for handle %#06x: desc=%s, char=%s", self.address, handle, e1, e2
                     )
                     # Don't raise - allow initialization to continue with other CCCDs
 
@@ -351,12 +343,7 @@ class SolamagicBleClient:
             # 1. Read current init from device
             try:
                 read_value: bytes = await client.read_gatt_char(HANDLE_INIT)
-                _LOGGER.info(
-                    "[%s] Read init value from handle 0x%04X: %s",
-                    self.address,
-                    HANDLE_INIT,
-                    _hex(read_value),
-                )
+                _LOGGER.info("[%s] Read init value from handle 0x%04X: %s", self.address, HANDLE_INIT, _hex(read_value))
             except (BleakError, AttributeError) as e:
                 _LOGGER.error("[%s] Failed to read init value: %s", self.address, e)
                 read_value = b""
@@ -366,42 +353,20 @@ class SolamagicBleClient:
             # 2-3. Choose which value we should actually write
             if all_zero and fallback_init:
                 init_value = fallback_init
-                _LOGGER.warning(
-                    "[%s] Init value from device is all zeroes, using stored fallback: %s",
-                    self.address,
-                    _hex(init_value),
-                )
+                _LOGGER.warning("[%s] Init value from device is all zeroes, using stored fallback: %s", self.address, _hex(init_value))
             elif read_value:
                 init_value = read_value
-                _LOGGER.info(
-                    "[%s] Echoing init value back to handle 0x%04X: %s",
-                    self.address,
-                    HANDLE_INIT,
-                    _hex(init_value),
-                )
+                _LOGGER.info("[%s] Echoing init value back to handle 0x%04X: %s", self.address, HANDLE_INIT, _hex(init_value))
             elif fallback_init and read_value != fallback_init:
-                _LOGGER.info(
-                    "[%s] Device init token changed (%s). Overriding with stored token: %s",
-                    self.address,
-                    _hex(read_value),
-                    _hex(fallback_init),
-                )
+                _LOGGER.info("[%s] Device init token changed (%s). Overriding with stored token: %s", self.address, _hex(read_value), _hex(fallback_init))
                 init_value = fallback_init
             else:
                 # Last resort: use static INIT_PAYLOAD
                 init_value = INIT_PAYLOAD
-                _LOGGER.warning(
-                    "[%s] No init value read; falling back to static INIT_PAYLOAD: %s",
-                    self.address,
-                    _hex(init_value),
-                )
+                _LOGGER.warning("[%s] No init value read; falling back to static INIT_PAYLOAD: %s", self.address, _hex(init_value))
 
             # 4. Write the init value
-            _LOGGER.info(
-                "[%s] Writing initialization sequence to handle 0x%04X",
-                self.address,
-                HANDLE_INIT,
-            )
+            _LOGGER.info("[%s] Writing initialization sequence to handle 0x%04X", self.address, HANDLE_INIT)
             _LOGGER.debug("[%s] Init payload: %s", self.address, _hex(init_value))
 
             try:
@@ -432,10 +397,7 @@ class SolamagicBleClient:
             client = await self._ensure_connected()
 
             for i in range(max(1, repeat)):
-                _LOGGER.debug(
-                    "Write #%d to handle %#06x, resp=%s: %s",
-                    i+1, HANDLE_CMD, response, _hex(data)
-                )
+                _LOGGER.debug("[%s] Write #%d to handle %#06x, resp=%s: %s", self.address, i+1, HANDLE_CMD, response, _hex(data))
 
                 try:
                     await client.write_gatt_char(HANDLE_CMD, data, response=response)
@@ -464,11 +426,7 @@ class SolamagicBleClient:
             client = await self._ensure_connected()
 
             for i in range(max(1, repeat)):
-                _LOGGER.debug(
-                    "Write #%d to handle %#06x, resp=%s: %s",
-                    i+1, handle, response, _hex(data)
-                )
-
+                _LOGGER.debug("[%s] Write #%d to handle %#06x, resp=%s: %s", self.address, i+1, handle, response, _hex(data))
                 try:
                     await client.write_gatt_char(handle, data, response=response)
                 except (BleakError, AttributeError) as e:
@@ -521,7 +479,7 @@ class SolamagicBleClient:
 
             if self._client and self._client.is_connected:
                 try:
-                    _LOGGER.info("Disconnecting from %s", self.address)
+                    _LOGGER.info("[%s] Disconnecting", self.address)
                     await self._client.disconnect()
                 except Exception as e:  # Broad catch OK: disconnect cleanup, log and continue
                     _LOGGER.debug("[%s] Disconnect error: %r", self.address, e)
