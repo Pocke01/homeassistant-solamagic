@@ -57,6 +57,7 @@ CONF_COMMAND_CHAR = "command_characteristic"
 CONF_DEFAULT_ON_LEVEL = "default_on_level"
 CONF_WRITE_MODE = "write_mode"  # "handle" (recommended via proxy) or "uuid"
 CONF_INIT_TOKEN = "init_token"
+CONF_DEVICE_INFO = "device_info"  # Manufacturer, model, HW/SW versions
 
 def format_device_name(address: str) -> str:
     """
@@ -84,7 +85,7 @@ def format_device_name(address: str) -> str:
     return "Solamagic 2000BT"
 
 
-def get_device_info(address: str, entry_title: str = None) -> dict:
+def get_device_info(address: str, entry_title: str = None, device_info_dict: dict | None = None) -> dict:
     """
     Create uniform device_info for all entities.
 
@@ -96,6 +97,8 @@ def get_device_info(address: str, entry_title: str = None) -> dict:
         entry_title: Title from config entry (user's chosen name)
                      If provided, this is used as device name.
                      If None, generates name from MAC address.
+        device_info_dict: Optional dict with manufacturer, model, hw_version, sw_version
+                          read from BLE Device Information Service
 
     Returns:
         Dict with device information
@@ -107,6 +110,7 @@ def get_device_info(address: str, entry_title: str = None) -> dict:
     else:
         device_name = format_device_name(address)
 
+    # Start with defaults
     device_info = {
         "identifiers": {(DOMAIN, address)},
         "manufacturer": "Solamagic",
@@ -115,8 +119,22 @@ def get_device_info(address: str, entry_title: str = None) -> dict:
         "suggested_area": "Outdoor",
     }
 
-    # Add MAC as hardware version if available
-    if address:
+    # Override with BLE-read info if available
+    if device_info_dict:
+        if "manufacturer" in device_info_dict:
+            device_info["manufacturer"] = device_info_dict["manufacturer"]
+        if "model" in device_info_dict:
+            # Combine commercial name with technical model
+            # e.g., "Solamagic 2000BT (KOCH BTS)"
+            ble_model = device_info_dict["model"]
+            device_info["model"] = f"Solamagic 2000BT ({ble_model})"
+        if "hw_version" in device_info_dict:
+            device_info["hw_version"] = device_info_dict["hw_version"]
+        if "sw_version" in device_info_dict:
+            device_info["sw_version"] = device_info_dict["sw_version"]
+    
+    # Fallback: Add MAC as hardware version if not set and address available
+    if "hw_version" not in device_info and address:
         device_info["hw_version"] = address
 
     return device_info

@@ -19,7 +19,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN, get_device_info
+from .const import DOMAIN, CONF_DEVICE_INFO, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ async def async_setup_entry(
     name = entry.title or entry.data.get("address") or "Solamagic"
 
     sensors = [
-        SolamagicPowerSensor(client, name, entry.entry_id),
-        SolamagicRSSISensor(client, name, entry.entry_id),
-        SolamagicConnectionSensor(client, name, entry.entry_id),
+        SolamagicPowerSensor(client, name, entry),
+        SolamagicRSSISensor(client, name, entry),
+        SolamagicConnectionSensor(client, name, entry),
     ]
 
     async_add_entities(sensors, True)
@@ -58,20 +58,21 @@ class SolamagicPowerSensor(SensorEntity):
     _attr_icon = "mdi:radiator"
     _attr_suggested_display_precision = 0
 
-    def __init__(self, client, name: str, unique_id: str) -> None:
+    def __init__(self, client, name: str, entry: ConfigEntry) -> None:
         """
         Initialize the power sensor.
 
         Args:
             client: SolamagicClient instance
             name: Entity name (from entry.title)
-            unique_id: Unique identifier
+            entry: Config entry
         """
         self._client = client
         self._attr_name = "Power Level"  # Suffix added to device name
-        self._attr_unique_id = f"{unique_id}-power"
+        self._attr_unique_id = f"{entry.entry_id}-power"
         self._address = getattr(client._ble, "address", None)
         self._entry_title = name  # Save for get_device_info
+        self._device_info_dict = entry.data.get(CONF_DEVICE_INFO)
 
         # Current state
         self._attr_native_value = 0
@@ -83,7 +84,7 @@ class SolamagicPowerSensor(SensorEntity):
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address, self._entry_title)
+        return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     @property
     def extra_state_attributes(self):
@@ -213,26 +214,27 @@ class SolamagicRSSISensor(SensorEntity):
     _attr_icon = "mdi:wifi"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, client, name: str, unique_id: str) -> None:
+    def __init__(self, client, name: str, entry: ConfigEntry) -> None:
         """
         Initialize the RSSI sensor.
 
         Args:
             client: SolamagicClient instance
             name: Entity name (from entry.title)
-            unique_id: Unique identifier
+            entry: Config entry
         """
         self._client = client
         self._attr_name = "Signal Strength"  # Suffix added to device name
-        self._attr_unique_id = f"{unique_id}-rssi"
+        self._attr_unique_id = f"{entry.entry_id}-rssi"
         self._address = getattr(client._ble, "address", None)
         self._attr_native_value = None
         self._entry_title = name  # Save for get_device_info
+        self._device_info_dict = entry.data.get(CONF_DEVICE_INFO)
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address, self._entry_title)
+        return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     async def async_update(self) -> None:
         """
@@ -282,27 +284,28 @@ class SolamagicConnectionSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_should_poll = False  # We update via callbacks instead
 
-    def __init__(self, client, name: str, unique_id: str) -> None:
+    def __init__(self, client, name: str, entry: ConfigEntry) -> None:
         """
         Initialize the connection sensor.
 
         Args:
             client: SolamagicClient instance
             name: Entity name (from entry.title)
-            unique_id: Unique identifier
+            entry: Config entry
         """
         self._client = client
         self._attr_name = "Connection Status"  # Suffix added to device name
-        self._attr_unique_id = f"{unique_id}-connection"
+        self._attr_unique_id = f"{entry.entry_id}-connection"
         self._address = getattr(client._ble, "address", None)
         self._attr_native_value = "disconnected"
         self._remove_listener = None
         self._entry_title = name  # Save for get_device_info
+        self._device_info_dict = entry.data.get(CONF_DEVICE_INFO)
 
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address, self._entry_title)
+        return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     @property
     def extra_state_attributes(self):

@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import DOMAIN, get_device_info
+from .const import DOMAIN, CONF_DEVICE_INFO, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ async def async_setup_entry(
     """Set up Solamagic climate entity from config entry."""
     client = hass.data[DOMAIN][entry.entry_id]
     name = entry.title or entry.data.get("address") or "Solamagic"
-    async_add_entities([SolamagicClimate(client, name, entry.entry_id)], True)
+    async_add_entities([SolamagicClimate(client, name, entry)], True)
 
 
 class SolamagicClimate(ClimateEntity):
@@ -68,21 +68,22 @@ class SolamagicClimate(ClimateEntity):
     _attr_preset_modes = [PRESET_LOW, PRESET_MEDIUM, PRESET_HIGH]
     _enable_turn_on_off_backwards_compatibility = False
 
-    def __init__(self, client, name: str, unique_id: str) -> None:
+    def __init__(self, client, name: str, entry: ConfigEntry) -> None:
         """
         Initialize the climate entity.
 
         Args:
             client: SolamagicClient instance
             name: Entity name
-            unique_id: Unique identifier for this entity
+            entry: Config entry
         """
         self._client = client
         # Don't set _attr_name - let it use device name from device_info
-        self._attr_unique_id = f"{unique_id}-climate"
+        self._attr_unique_id = f"{entry.entry_id}-climate"
         self._address = getattr(client._ble, "address", None)
-        self._entry_id = unique_id
+        self._entry_id = entry.entry_id
         self._entry_title = name  # Save for device_info
+        self._device_info_dict = entry.data.get(CONF_DEVICE_INFO)
 
         # Current state
         self._attr_hvac_mode = HVACMode.OFF
@@ -97,7 +98,7 @@ class SolamagicClimate(ClimateEntity):
     @property
     def device_info(self):
         """Return device information for device registry."""
-        return get_device_info(self._address, self._entry_title)
+        return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     async def async_added_to_hass(self) -> None:
         """Set up listener for sensor state changes when added to hass."""
