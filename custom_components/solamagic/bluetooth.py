@@ -171,6 +171,33 @@ class SolamagicBleClient:
 
         return self._client
 
+    async def read_init_token(self) -> bytes | None:
+        """
+        Read current init-token from HANDLE_INIT (0x001F).
+        Used at setup-time to persist the per-device init sequence.
+        """
+        async with self._lock:
+            client = await self._ensure_connected()
+            try:
+                value = await client.read_gatt_char(HANDLE_INIT)
+            except (BleakError, AttributeError) as err:
+                _LOGGER.error(
+                    "[%s] Failed to read init-token from handle %#06x: %s",
+                    self.address,
+                    HANDLE_INIT,
+                    err,
+                )
+                raise _as_ha_error(err, "Read init-token failed")
+
+        if value:
+            _LOGGER.info(
+                "[%s] Read init-token from handle %#06x: %s",
+                self.address,
+                HANDLE_INIT,
+                _hex(value),
+            )
+        return value
+
     def _parse_status(self, data: bytes) -> int | None:
         """
         Parse status from handle 0x0032 notifications.
