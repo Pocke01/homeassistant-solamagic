@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import binascii
 import logging
+import time
 from typing import Any, Callable
 
 from bleak import BleakError
@@ -63,7 +64,6 @@ class SolamagicBleClient:
         Args:
             level: Expected power level in percent (0, 33, 66, or 100)
         """
-        import time
         self._expected_level = level
         self._expected_level_time = time.time()
         _LOGGER.debug("[%s] Set expected level: %d%% (will ignore different values for 1 second)", self.address, level)
@@ -256,7 +256,6 @@ class SolamagicBleClient:
             if level is not None:
                 # Check if we should ignore this notification
                 # (it might be stale if we just sent a command)
-                import time
                 time_since_expected = time.time() - self._expected_level_time
 
                 if (self._expected_level is not None and
