@@ -1,0 +1,213 @@
+{
+  "config": {
+    "step": {
+      "bluetooth": {
+        "description": "Solamagic 2000BT opdaget via Bluetooth"
+      },
+      "confirm": {
+        "title": "Tilføj Solamagic varmeelement",
+        "description": "Vil du tilføje **{name}**?\n\n**Adresse:** `{address}`\n**Signalstyrke:** {rssi}"
+      },
+      "user": {
+        "title": "Tilføj Solamagic manuelt",
+        "description": "Indtast Bluetooth-adressen på dit Solamagic 2000BT varmeelement.",
+        "data": {
+          "address": "Bluetooth-adresse (MAC)",
+          "name": "Navn (valgfrit)",
+          "command_char": "Kommando-UUID (avanceret)",
+          "default_on_level": "Standard effektniveau",
+          "write_mode": "Skrivemetode (avanceret)"
+        },
+        "data_description": {
+          "address": "Format: AA:BB:CC:DD:EE:FF eller AA-BB-CC-DD-EE-FF",
+          "name": "Et beskrivende navn, f.eks. 'Terrassevarmer'",
+          "default_on_level": "Hvilket effektniveau der bruges ved tænding",
+          "command_char": "Behold standard medmindre du ved hvad dette er",
+          "write_mode": "Brug 'handle' til nyere varmeelementer, 'uuid' til ældre"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kunne ikke oprette forbindelse til varmeelementet",
+      "invalid_address": "Ugyldig Bluetooth-adresse",
+      "unknown": "Der opstod en uventet fejl"
+    },
+    "abort": {
+      "already_configured": "Dette varmeelement er allerede konfigureret",
+      "already_configured_device": "Et varmeelement med denne adresse er allerede tilføjet"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solamagic-indstillinger",
+        "description": "Konfigurer avancerede indstillinger for dit varmeelement",
+        "data": {
+          "command_char": "Kommando-UUID",
+          "default_on_level": "Standard effektniveau",
+          "write_mode": "Skrivemetode"
+        },
+        "data_description": {
+          "command_char": "UUID til afsendelse af kommandoer (skift kun ved problemer)",
+          "default_on_level": "Hvilket effektniveau der bruges ved tænding",
+          "write_mode": "Metode til afsendelse af BLE-kommandoer (handle = hurtigere, uuid = kompatibel)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "power_level": {
+        "name": "Effektniveau"
+      },
+      "signal_strength": {
+        "name": "Signalstyrke"
+      },
+      "connection_status": {
+        "name": "Forbindelsesstatus",
+        "state": {
+          "connected": "Forbundet",
+          "disconnected": "Afbrudt",
+          "unknown": "Ukendt"
+        }
+      }
+    },
+    "climate": {
+      "solamagic": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "low": "Lav",
+              "medium": "Medium",
+              "high": "Høj"
+            }
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "write_handle": {
+      "name": "Skriv direkte til handle 0x0028",
+      "description": "Send en rå hex-payload til Solamagic ved hjælp af GATT handle 0x0028.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID (Avanceret)",
+          "description": "Config entry ID - kun nødvendigt hvis du ikke bruger enhedsvalg nedenfor"
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Vælg dit Solamagic varmeelement (nemmere end entry_id)"
+        },
+        "payload_hex": {
+          "name": "Payload (hex)",
+          "description": "Hex-payload at sende. Eksempler - Fra=00 21, 33%=01 21, 66%=01 42, 100%=01 64"
+        },
+        "response": {
+          "name": "Skriv med svar",
+          "description": "Om der skal anmodes om skrivesvar"
+        },
+        "repeat": {
+          "name": "Gentagelsesantal",
+          "description": "Hvor mange gange kommandoen skal sendes"
+        },
+        "delay_ms": {
+          "name": "Forsinkelse mellem gentagelser (ms)",
+          "description": "Forsinkelse i millisekunder mellem hver gentagelse"
+        }
+      }
+    },
+    "write_handle_any": {
+      "name": "Skriv til enhver handle",
+      "description": "Send en rå hex-payload til en specifik GATT handle (decimal). Nyttig til CCCD-skrivninger.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID (Avanceret)",
+          "description": "Config entry ID - kun nødvendigt hvis du ikke bruger enhedsvalg"
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Vælg dit Solamagic varmeelement"
+        },
+        "handle": {
+          "name": "Handle (decimal)",
+          "description": "Decimal handle-nummer. Eksempler - 41=0x0029 (kommando CCCD), 51=0x0033 (notifikation CCCD), 40=0x0028 (kommando)"
+        },
+        "payload_hex": {
+          "name": "Payload (hex)",
+          "description": "Hex-payload at sende"
+        },
+        "response": {
+          "name": "Skriv med svar",
+          "description": "Om der skal anmodes om skrivesvar"
+        },
+        "repeat": {
+          "name": "Gentagelsesantal",
+          "description": "Hvor mange gange kommandoen skal sendes"
+        },
+        "delay_ms": {
+          "name": "Forsinkelse mellem gentagelser (ms)",
+          "description": "Forsinkelse i millisekunder mellem hver gentagelse"
+        }
+      }
+    },
+    "write_uuid": {
+      "name": "Skriv til karakteristik via UUID",
+      "description": "Send en rå hex-payload til en karakteristik-UUID (f.eks. F001/F002).",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID (Avanceret)",
+          "description": "Config entry ID - kun nødvendigt hvis du ikke bruger enhedsvalg"
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Vælg dit Solamagic varmeelement"
+        },
+        "char_uuid": {
+          "name": "Karakteristik-UUID",
+          "description": "Den fulde UUID for karakteristikken"
+        },
+        "payload_hex": {
+          "name": "Payload (hex)",
+          "description": "Hex-payload at sende"
+        },
+        "response": {
+          "name": "Skriv med svar",
+          "description": "Om der skal anmodes om skrivesvar"
+        }
+      }
+    },
+    "set_level": {
+      "name": "Indstil varmeelementets niveau",
+      "description": "Indstil Solamagic varmeelementets effektniveau til 0%, 33%, 66% eller 100%.\n\nDette er den nemmeste måde at styre dit varmeelement via automatiseringer eller scripts.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID (Avanceret)",
+          "description": "Config entry ID - kun nødvendigt hvis du ikke bruger enhedsvalg"
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Vælg dit Solamagic varmeelement (anbefalet)"
+        },
+        "level": {
+          "name": "Niveau",
+          "description": "Varmeelementets effektniveau (0=FRA, 33/66/100=TIL ved angivet procent)"
+        }
+      }
+    },
+    "disconnect": {
+      "name": "Afbryd forbindelse",
+      "description": "Afbryd forbindelsen til enheden. Nyttigt under test eller for at tillade xHeatlink-appen at oprette forbindelse.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID (Avanceret)",
+          "description": "Config entry ID - kun nødvendigt hvis du ikke bruger enhedsvalg"
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Vælg dit Solamagic varmeelement"
+        }
+      }
+    }
+  }
+}
