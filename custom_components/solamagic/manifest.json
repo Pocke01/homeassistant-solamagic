@@ -5,10 +5,6 @@
   "bluetooth": [
     {
       "connectable": true,
-      "local_name": "D0:65:4C:*"
-    },
-    {
-      "connectable": true,
       "manufacturer_id": 89
     }
   ],
