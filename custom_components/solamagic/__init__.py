@@ -26,7 +26,6 @@ PLATFORMS: list[str] = ["climate", "sensor"]
 # Integration is configured via config entries only (UI setup)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-
 def _b(hexstr: str) -> bytes:
     """Convert hex string to bytes."""
     s = hexstr.replace(" ", "").replace("-", "")
@@ -107,6 +106,13 @@ SET_LEVEL_SCHEMA = vol.Schema({
 DISCONNECT_SCHEMA = vol.Schema({
     vol.Optional("entry_id"): str,
     vol.Optional("device_id"): str,
+})
+
+SCAN_INIT_HANDLES_SCHEMA = vol.Schema({
+    vol.Optional("entry_id"): str,
+    vol.Optional("device_id"): str,
+    vol.Optional("start_handle", default=15): vol.Coerce(int),
+    vol.Optional("end_handle", default=40): vol.Coerce(int),
 })
 
 
@@ -380,6 +386,118 @@ async def async_setup_entry(
                 f"Failed to disconnect from device: {err}"
             ) from err
 
+
+    async def _svc_scan_init_handles(call: ServiceCall) -> None:
+        """
+        Diagnostic service to scan for init handle.
+
+        Tries to read from handles in the specified range and logs results.
+        This helps identify the correct init handle for different heater models.
+        """
+        entry_id = _get_entry_id_from_call(hass, call)
+        if not entry_id:
+            raise HomeAssistantError(
+                "No device specified. Please select a device."
+            )
+
+        client = hass.data[DOMAIN].get(entry_id)
+        if not client:
+            raise HomeAssistantError(
+                f"Device with entry_id '{entry_id}' not found."
+            )
+
+        start = call.data.get("start_handle", 15)
+        end = call.data.get("end_handle", 40)
+
+        _LOGGER.info(
+            "[%s] 🔍 Starting init handle scan from %d to %d...",
+            client._ble.address, start, end
+        )
+
+        try:
+            # Ensure we're connected
+            ble_client = await client._ble._ensure_connected()
+
+            results = []
+
+            for handle in range(start, end + 1):
+                try:
+                    _LOGGER.debug(
+                        "[%s] Trying to read handle 0x%04X (%d)...",
+                        client._ble.address, handle, handle
+                    )
+
+                    # Re-ensure connected before each read (poll may disconnect us)
+                    ble_client = await client._ble._ensure_connected()
+
+                    # Try to read this handle
+                    value = await ble_client.read_gatt_char(handle)
+
+                    if value and len(value) > 0:
+                        hex_value = value.hex()
+                        _LOGGER.info(
+                            "[%s] ✅ Handle 0x%04X (%d) readable: %s (length: %d bytes)",
+                            client._ble.address, handle, handle, hex_value, len(value)
+                        )
+
+                        results.append({
+                            "handle": handle,
+                            "hex": f"0x{handle:04X}",
+                            "value": hex_value,
+                            "length": len(value)
+                        })
+
+                        # If it looks like an init token (9 bytes starting with FF)
+                        if len(value) == 9 and value[0] == 0xFF:
+                            _LOGGER.warning(
+                                "[%s] 🎯 POTENTIAL INIT TOKEN FOUND at handle 0x%04X (%d): %s",
+                                client._ble.address, handle, handle, hex_value
+                            )
+                    else:
+                        _LOGGER.debug(
+                            "[%s] Handle 0x%04X (%d): Empty value",
+                            client._ble.address, handle, handle
+                        )
+
+                except Exception as e:
+                    # Expected for most handles - they won't be readable
+                    _LOGGER.debug(
+                        "[%s] Handle 0x%04X (%d): Not readable (%s)",
+                        client._ble.address, handle, handle, str(e)
+                    )
+
+            # Summary
+            if results:
+                _LOGGER.warning(
+                    "[%s] 📊 SCAN COMPLETE - Found %d readable handles:",
+                    client._ble.address, len(results)
+                )
+                for r in results:
+                    _LOGGER.warning(
+                        "[%s]   - Handle %s (%d): %s (%d bytes)",
+                        client._ble.address, r["hex"], r["handle"], r["value"], r["length"]
+                    )
+            else:
+                _LOGGER.warning(
+                    "[%s] 📊 SCAN COMPLETE - No readable handles found in range %d-%d",
+                    client._ble.address, start, end
+                )
+                _LOGGER.warning(
+                    "[%s] Try expanding the range or check if device is properly connected",
+                    client._ble.address
+                )
+
+        except Exception as err:
+            _LOGGER.error(
+                "[%s] Scan failed: %s",
+                client._ble.address, err, exc_info=True
+            )
+            raise HomeAssistantError(
+                f"Failed to scan handles: {err}"
+            ) from err
+
+
+
     # Register services (once per integration)
     if not hass.services.has_service(DOMAIN, "write_handle"):
         hass.services.async_register(
@@ -405,6 +523,12 @@ async def async_setup_entry(
         hass.services.async_register(
             DOMAIN, "disconnect", _svc_disconnect,
             schema=DISCONNECT_SCHEMA
+        )
+
+    if not hass.services.has_service(DOMAIN, "scan_init_handles"):
+        hass.services.async_register(
+            DOMAIN, "scan_init_handles", _svc_scan_init_handles,
+            schema=SCAN_INIT_HANDLES_SCHEMA
         )
 
     return True

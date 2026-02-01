@@ -147,7 +147,7 @@ set_level:
   name: Set heater level
   description: |
     Set Solamagic heater power level to 0%, 33%, 66%, or 100%.
-    
+
     This is the easiest way to control your heater via automations or scripts.
   fields:
     entry_id:
@@ -196,3 +196,36 @@ disconnect:
       selector:
         device:
           integration: solamagic
+
+scan_init_handles:
+  name: Scan for Init Handle (Diagnostic)
+  description: |
+    Scans handles 15-40 to find the initialization characteristic.
+    This is a diagnostic tool to help configure heaters with different GATT structures.
+    Check the Home Assistant logs for results.
+  fields:
+    device_id:
+      name: Device
+      description: Select your Solamagic heater
+      required: true
+      selector:
+        device:
+          integration: solamagic
+    start_handle:
+      name: Start Handle
+      description: First handle to scan (decimal)
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 65535
+          mode: box
+    end_handle:
+      name: End Handle
+      description: Last handle to scan (decimal)
+      default: 40
+      selector:
+        number:
+          min: 1
+          max: 65535
+          mode: box
