@@ -229,3 +229,29 @@ scan_init_handles:
           min: 1
           max: 65535
           mode: box
+
+test_handle_offset:
+  name: Test Handle Offset (Diagnostic)
+  description: |
+    Detects whether the heater uses the standard GATT table (offset=0) or
+    the shifted table (offset=-1, Model B). Runs a full initialization
+    sequence with the auto-detected handles and logs each step.
+
+    Enable "Send Test Command" to also send a 33% command — WARNING: the
+    heater will turn on if this succeeds!
+
+    Check Home Assistant logs for 🧪 TEST_HANDLE_OFFSET results.
+  fields:
+    device_id:
+      name: Device
+      description: Select your Solamagic heater
+      required: true
+      selector:
+        device:
+          integration: solamagic
+    send_test_command:
+      name: Send Test Command (33%)
+      description: "WARNING: heater will turn on! Sends 33% command after init to verify full communication works."
+      default: false
+      selector:
+        boolean:

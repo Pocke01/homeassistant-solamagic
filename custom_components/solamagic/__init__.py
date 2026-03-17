@@ -1,5 +1,6 @@
 """The Solamagic integration."""
 from __future__ import annotations
+import asyncio
 import binascii
 import logging
 
@@ -113,6 +114,12 @@ SCAN_INIT_HANDLES_SCHEMA = vol.Schema({
     vol.Optional("device_id"): str,
     vol.Optional("start_handle", default=15): vol.Coerce(int),
     vol.Optional("end_handle", default=40): vol.Coerce(int),
+})
+
+TEST_HANDLE_OFFSET_SCHEMA = vol.Schema({
+    vol.Optional("entry_id"): str,
+    vol.Optional("device_id"): str,
+    vol.Optional("send_test_command", default=False): bool,
 })
 
 
@@ -498,6 +505,180 @@ async def async_setup_entry(
 
 
 
+    async def _svc_test_handle_offset(call: ServiceCall) -> None:
+        """
+        Diagnostic service to test handle offset for multi-model support.
+
+        Detects whether the heater uses the standard GATT table (offset=0)
+        or the shifted table (offset=-1, Model B). Runs a full initialization
+        sequence with the detected handles and optionally sends a 33% command
+        to verify the heater responds.
+
+        All results are logged at WARNING level so they appear in HA logs
+        by default. No permanent changes are made to the config entry.
+
+        Parameters:
+            send_test_command (bool): If True, sends 33% heat command after
+                                     init. WARNING: heater will turn on!
+        """
+        entry_id = _get_entry_id_from_call(hass, call)
+        if not entry_id:
+            raise HomeAssistantError(
+                "No device specified. Please select a device."
+            )
+
+        client = hass.data[DOMAIN].get(entry_id)
+        if not client:
+            raise HomeAssistantError(
+                f"Device with entry_id '{entry_id}' not found."
+            )
+
+        address = client._ble.address
+        send_cmd = call.data.get("send_test_command", False)
+
+        _LOGGER.warning(
+            "[%s] 🧪 TEST_HANDLE_OFFSET: Starting%s",
+            address,
+            " (will send 33%% command!)" if send_cmd else "",
+        )
+
+        try:
+            ble_client = await client._ble._ensure_connected()
+        except Exception as err:
+            raise HomeAssistantError(f"Could not connect: {err}") from err
+
+        # ── Step 1: Detect init handle ────────────────────────────────────
+        _LOGGER.warning("[%s] 🔍 Step 1: Scanning for init token...", address)
+
+        init_candidates = [0x001F, 0x001E, 0x001D]
+        detected_handle: int | None = None
+        detected_token: bytes | None = None
+
+        for handle in init_candidates:
+            try:
+                value = await ble_client.read_gatt_char(handle)
+                if value and len(value) == 9 and value[0] == 0xFF:
+                    detected_handle = handle
+                    detected_token = bytes(value)
+                    _LOGGER.warning(
+                        "[%s] ✅ Init token at handle 0x%04X: %s",
+                        address, handle, detected_token.hex(),
+                    )
+                    break
+                else:
+                    _LOGGER.debug(
+                        "[%s]    Handle 0x%04X readable but not init token: %s",
+                        address, handle, value.hex() if value else "empty",
+                    )
+            except Exception as e:
+                _LOGGER.debug(
+                    "[%s]    Handle 0x%04X not readable: %s", address, handle, e
+                )
+
+        if detected_handle is None:
+            _LOGGER.error(
+                "[%s] ❌ No init token found at handles %s",
+                address, [f"0x{h:04X}" for h in init_candidates],
+            )
+            raise HomeAssistantError(
+                "Could not find init token. Run scan_init_handles for full diagnostics."
+            )
+
+        # ── Step 2: Calculate offset and resolved handles ─────────────────
+        offset = detected_handle - 0x001F  # 0 = standard, -1 = Model B
+
+        h_init   = 0x001F + offset
+        h_cmd    = 0x0028 + offset
+        h_ntf1   = 0x002F + offset
+        h_ntf2   = 0x0032 + offset
+        cccd_ntf1 = 0x0030 + offset
+        cccd_ntf2 = 0x0033 + offset
+        cccd_cmd  = 0x0029 + offset
+
+        model = "standard (Model A)" if offset == 0 else f"Model B (offset={offset})"
+        _LOGGER.warning(
+            "[%s] 📊 Step 2: Detected %s\n"
+            "    HANDLE_INIT=0x%04X  HANDLE_CMD=0x%04X\n"
+            "    CCCD_NTF1=0x%04X  CCCD_NTF2=0x%04X  CCCD_CMD=0x%04X",
+            address, model,
+            h_init, h_cmd,
+            cccd_ntf1, cccd_ntf2, cccd_cmd,
+        )
+
+        # ── Step 3: Write init token ──────────────────────────────────────
+        _LOGGER.warning(
+            "[%s] 🔧 Step 3: Writing init token to 0x%04X...", address, h_init
+        )
+        try:
+            await ble_client.write_gatt_char(h_init, detected_token, response=True)
+            _LOGGER.warning("[%s] ✅ Init write OK", address)
+        except Exception as e:
+            _LOGGER.error("[%s] ❌ Init write FAILED: %s", address, e)
+            raise HomeAssistantError(f"Init write failed: {e}") from e
+
+        await asyncio.sleep(0.1)
+
+        # ── Step 4: Enable CCCDs ──────────────────────────────────────────
+        _LOGGER.warning("[%s] 🔧 Step 4: Enabling CCCDs...", address)
+
+        for label, cccd_handle in [
+            ("CCCD_NTF1", cccd_ntf1),
+            ("CCCD_NTF2", cccd_ntf2),
+            ("CCCD_CMD (LAST)", cccd_cmd),
+        ]:
+            try:
+                await ble_client.write_gatt_descriptor(cccd_handle, bytes([0x01, 0x00]))
+                _LOGGER.warning(
+                    "[%s] ✅ %s at 0x%04X enabled", address, label, cccd_handle
+                )
+            except Exception:
+                # Try char write as fallback (same as write_cccd does)
+                try:
+                    await ble_client.write_gatt_char(
+                        cccd_handle, bytes([0x01, 0x00]), response=True
+                    )
+                    _LOGGER.warning(
+                        "[%s] ✅ %s at 0x%04X enabled (char fallback)",
+                        address, label, cccd_handle,
+                    )
+                except Exception as e2:
+                    _LOGGER.warning(
+                        "[%s] ⚠️  %s at 0x%04X failed: %s", address, label, cccd_handle, e2
+                    )
+            await asyncio.sleep(0.05)
+
+        # ── Step 5: Optional test command ─────────────────────────────────
+        if send_cmd:
+            _LOGGER.warning(
+                "[%s] 🔥 Step 5: Sending 33%% command to 0x%04X...",
+                address, h_cmd,
+            )
+            try:
+                await ble_client.write_gatt_char(
+                    h_cmd, bytes([0x01, 0x21]), response=False
+                )
+                _LOGGER.warning(
+                    "[%s] ✅ 33%% command sent to 0x%04X — heater should activate!",
+                    address, h_cmd,
+                )
+            except Exception as e:
+                _LOGGER.error(
+                    "[%s] ❌ Command to 0x%04X FAILED: %s", address, h_cmd, e
+                )
+                raise HomeAssistantError(f"Test command failed: {e}") from e
+        else:
+            _LOGGER.warning(
+                "[%s] ℹ️  Step 5: Skipped (send_test_command=false). "
+                "Re-run with send_test_command: true to verify heater responds.",
+                address,
+            )
+
+        _LOGGER.warning(
+            "[%s] 🏁 TEST_HANDLE_OFFSET complete. "
+            "offset=%d, init=0x%04X, cmd=0x%04X",
+            address, offset, h_init, h_cmd,
+        )
+
     # Register services (once per integration)
     if not hass.services.has_service(DOMAIN, "write_handle"):
         hass.services.async_register(
@@ -529,6 +710,12 @@ async def async_setup_entry(
         hass.services.async_register(
             DOMAIN, "scan_init_handles", _svc_scan_init_handles,
             schema=SCAN_INIT_HANDLES_SCHEMA
+        )
+
+    if not hass.services.has_service(DOMAIN, "test_handle_offset"):
+        hass.services.async_register(
+            DOMAIN, "test_handle_offset", _svc_test_handle_offset,
+            schema=TEST_HANDLE_OFFSET_SCHEMA
         )
 
     return True
