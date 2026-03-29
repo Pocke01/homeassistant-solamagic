@@ -6,7 +6,7 @@ import logging
 
 import voluptuous as vol
 
-from homeassistant.components import bluetooth
+from homeassistant.components import bluetooth as ha_bluetooth
 from homeassistant.components.bluetooth.match import ADDRESS, BluetoothCallbackMatcher
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -160,18 +160,18 @@ async def async_setup_entry(
     # reference fresh with the latest advertisement data.
     @callback
     def _async_bluetooth_callback(
-        service_info: bluetooth.BluetoothServiceInfoBleak,
-        change: bluetooth.BluetoothChange,
+        service_info: ha_bluetooth.BluetoothServiceInfoBleak,
+        change: ha_bluetooth.BluetoothChange,
     ) -> None:
         """Handle updated Bluetooth advertisement data."""
         client._ble.update_ble_device(service_info.device)
 
     entry.async_on_unload(
-        bluetooth.async_register_callback(
+        ha_bluetooth.async_register_callback(
             hass,
             _async_bluetooth_callback,
             BluetoothCallbackMatcher({ADDRESS: address}),
-            bluetooth.BluetoothScanningMode.PASSIVE,
+            ha_bluetooth.BluetoothScanningMode.PASSIVE,
         )
     )
 
