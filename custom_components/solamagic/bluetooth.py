@@ -12,7 +12,7 @@ from bleak_retry_connector import (
     establish_connection,
 )
 from homeassistant.components import bluetooth
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback  # noqa: F401 (callback re-exported)
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
@@ -58,11 +58,17 @@ class SolamagicBleClient:
         self._expected_level: int | None = None  # Expected level after command
         self._expected_level_time: float = 0  # When we set expected level
         self._handle_offset: int = 0  # Detected at first connection (0=Model A, -1=Model B)
+        self._cached_device = None   # Updated via async_register_callback advertisements
 
     @property
     def handle_offset(self) -> int:
         """Return the detected GATT handle offset for this device."""
         return self._handle_offset
+
+    @callback
+    def update_ble_device(self, device) -> None:
+        """Update the cached BLE device from a new advertisement."""
+        self._cached_device = device
 
     def set_expected_level(self, level: int) -> None:
         """
@@ -125,6 +131,10 @@ class SolamagicBleClient:
         await self.disconnect()
 
     async def _ble_device(self):
+        # Prefer the cached device from the latest advertisement (kept fresh by
+        # async_register_callback), fall back to scanning for the device.
+        if self._cached_device is not None:
+            return self._cached_device
         try:
             dev = bluetooth.async_ble_device_from_address(
                 self.hass, self.address, connectable=True

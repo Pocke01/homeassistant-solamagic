@@ -6,8 +6,10 @@ import logging
 
 import voluptuous as vol
 
+from homeassistant.components import bluetooth
+from homeassistant.components.bluetooth.match import ADDRESS, BluetoothCallbackMatcher
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 import homeassistant.helpers.config_validation as cv
@@ -152,6 +154,26 @@ async def async_setup_entry(
 
     client = SolamagicClient(hass, entry, write_mode, cmd_char)
     hass.data[DOMAIN][entry.entry_id] = client
+
+    # Register with HA's Bluetooth subsystem so the device appears as "Known"
+    # in the Bluetooth visualization. The callback also keeps the BLE device
+    # reference fresh with the latest advertisement data.
+    @callback
+    def _async_bluetooth_callback(
+        service_info: bluetooth.BluetoothServiceInfoBleak,
+        change: bluetooth.BluetoothChange,
+    ) -> None:
+        """Handle updated Bluetooth advertisement data."""
+        client._ble.update_ble_device(service_info.device)
+
+    entry.async_on_unload(
+        bluetooth.async_register_callback(
+            hass,
+            _async_bluetooth_callback,
+            BluetoothCallbackMatcher({ADDRESS: address}),
+            bluetooth.BluetoothScanningMode.PASSIVE,
+        )
+    )
 
     _LOGGER.info("Setup Solamagic %s (entry_id=%s, write_mode=%s)", address, entry.entry_id, write_mode)
 
