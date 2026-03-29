@@ -164,6 +164,7 @@ async def async_setup_entry(
         change: ha_bluetooth.BluetoothChange,
     ) -> None:
         """Handle updated Bluetooth advertisement data."""
+        _LOGGER.debug("[%s] BT advertisement received (rssi=%s)", address, service_info.rssi)
         client._ble.update_ble_device(service_info.device)
 
     entry.async_on_unload(
@@ -174,6 +175,7 @@ async def async_setup_entry(
             ha_bluetooth.BluetoothScanningMode.PASSIVE,
         )
     )
+    _LOGGER.info("[%s] Registered Bluetooth advertisement callback", address)
 
     _LOGGER.info("Setup Solamagic %s (entry_id=%s, write_mode=%s)", address, entry.entry_id, write_mode)
 

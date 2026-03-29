@@ -1,6 +1,8 @@
 """Constants for the Solamagic integration."""
 from __future__ import annotations
 
+from homeassistant.helpers import device_registry as dr
+
 DOMAIN = "solamagic"
 
 # UUIDs that work in this setup (from earlier tests)
@@ -113,6 +115,7 @@ def get_device_info(address: str, entry_title: str = None, device_info_dict: dic
     # Start with defaults
     device_info = {
         "identifiers": {(DOMAIN, address)},
+        "connections": {(dr.CONNECTION_BLUETOOTH, address)},
         "manufacturer": "Solamagic",
         "name": device_name,
         "model": "2000BT",
