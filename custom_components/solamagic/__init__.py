@@ -155,9 +155,8 @@ async def async_setup_entry(
     client = SolamagicClient(hass, entry, write_mode, cmd_char)
     hass.data[DOMAIN][entry.entry_id] = client
 
-    # Register with HA's Bluetooth subsystem so the device appears as "Known"
-    # in the Bluetooth visualization. The callback also keeps the BLE device
-    # reference fresh with the latest advertisement data.
+    # Register with HA's Bluetooth subsystem to keep the BLE device reference
+    # fresh with the latest advertisement data (RSSI, etc.).
     @callback
     def _async_bluetooth_callback(
         service_info: ha_bluetooth.BluetoothServiceInfoBleak,
