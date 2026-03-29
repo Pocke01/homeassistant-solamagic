@@ -41,6 +41,10 @@ def _as_ha_error(err: Any, prefix: str) -> HomeAssistantError:
 def _hex(b: bytes) -> str:
     return binascii.hexlify(b).decode("utf-8")
 
+# Handle candidates to try during auto-detection (standard first, then offset variants)
+HANDLE_INIT_CANDIDATES = [0x001F, 0x001E, 0x001D, 0x001C]
+
+
 class SolamagicBleClient:
     def __init__(self, hass: HomeAssistant, address: str) -> None:
         self.hass = hass
@@ -53,6 +57,12 @@ class SolamagicBleClient:
         self._disconnect_timeout = DISCONNECT_TIMEOUT
         self._expected_level: int | None = None  # Expected level after command
         self._expected_level_time: float = 0  # When we set expected level
+        self._handle_offset: int = 0  # Detected at first connection (0=Model A, -1=Model B)
+
+    @property
+    def handle_offset(self) -> int:
+        """Return the detected GATT handle offset for this device."""
+        return self._handle_offset
 
     def set_expected_level(self, level: int) -> None:
         """
@@ -127,6 +137,44 @@ class SolamagicBleClient:
         except (BleakError, TimeoutError) as err:
             raise _as_ha_error(err, "Bluetooth device lookup failed")
 
+    async def _detect_handle_offset(self, client: BleakClientWithServiceCache) -> int:
+        """
+        Detect GATT handle offset by probing init handle candidates.
+
+        Different hardware revisions (Model A vs Model B) have the entire
+        GATT table shifted. Standard (Model A) uses 0x001F; Model B uses 0x001E.
+        Returns the offset (0, -1, -2, ...) relative to the standard handles.
+        """
+        for handle in HANDLE_INIT_CANDIDATES:
+            try:
+                value = await client.read_gatt_char(handle)
+                if value and len(value) == 9 and value[0] == 0xFF:
+                    offset = handle - HANDLE_INIT
+                    if offset != 0:
+                        _LOGGER.warning(
+                            "[%s] Model B detected: GATT offset=%d (init handle 0x%04X)",
+                            self.address, offset, handle,
+                        )
+                    else:
+                        _LOGGER.info(
+                            "[%s] Model A detected: standard handles (init 0x%04X)",
+                            self.address, handle,
+                        )
+                    return offset
+                else:
+                    _LOGGER.debug(
+                        "[%s] Handle 0x%04X readable but not init token: %s",
+                        self.address, handle, value.hex() if value else "empty",
+                    )
+            except Exception as e:
+                _LOGGER.debug("[%s] Handle 0x%04X not readable: %s", self.address, handle, e)
+
+        _LOGGER.warning(
+            "[%s] Could not detect handle offset from candidates %s — using offset=0",
+            self.address, [f"0x{h:04X}" for h in HANDLE_INIT_CANDIDATES],
+        )
+        return 0
+
     async def _ensure_connected(self) -> BleakClientWithServiceCache:
         if self._client and self._client.is_connected:
             # Reset timer when reusing existing connection
@@ -158,8 +206,13 @@ class SolamagicBleClient:
         # Short pause after connection
         await asyncio.sleep(0.3)
 
-        # Start notifications on all handles
-        for h in (HANDLE_CMD, HANDLE_NTF1, HANDLE_NTF2):
+        # Detect handle offset for this device model
+        self._handle_offset = await self._detect_handle_offset(self._client)
+
+        # Start notifications on offset-adjusted handles
+        for h in (HANDLE_CMD + self._handle_offset,
+                  HANDLE_NTF1 + self._handle_offset,
+                  HANDLE_NTF2 + self._handle_offset):
             try:
                 await self._client.start_notify(h, self._notification_handler)
                 _LOGGER.info("[%s] Started notify on handle %#06x", self.address, h)
@@ -173,18 +226,19 @@ class SolamagicBleClient:
 
     async def read_init_token(self) -> bytes | None:
         """
-        Read current init-token from HANDLE_INIT (0x001F).
+        Read current init-token from the detected init handle.
         Used at setup-time to persist the per-device init sequence.
         """
         async with self._lock:
             client = await self._ensure_connected()
+            h_init = HANDLE_INIT + self._handle_offset
             try:
-                value = await client.read_gatt_char(HANDLE_INIT)
+                value = await client.read_gatt_char(h_init)
             except (BleakError, AttributeError) as err:
                 _LOGGER.error(
                     "[%s] Failed to read init-token from handle %#06x: %s",
                     self.address,
-                    HANDLE_INIT,
+                    h_init,
                     err,
                 )
                 raise _as_ha_error(err, "Read init-token failed")
@@ -193,7 +247,7 @@ class SolamagicBleClient:
             _LOGGER.info(
                 "[%s] Read init-token from handle %#06x: %s",
                 self.address,
-                HANDLE_INIT,
+                h_init,
                 _hex(value),
             )
         return value
@@ -354,10 +408,10 @@ class SolamagicBleClient:
 
     async def write_init_sequence(self, fallback_init: bytes | None = None) -> bytes:
         """
-        Write init sequence to handle 0x001F.
+        Write init sequence to the detected init handle.
 
         Flow:
-        1. Read current value from HANDLE_INIT (0x001F)
+        1. Read current value from detected HANDLE_INIT (offset-adjusted)
         2. If value is all zeroes and we have fallback_init → use fallback
         3. Otherwise → use the value we read
         4. Write back the selected value
@@ -365,11 +419,12 @@ class SolamagicBleClient:
         """
         async with self._lock:
             client = await self._ensure_connected()
+            h_init = HANDLE_INIT + self._handle_offset
 
             # 1. Read current init from device
             try:
-                read_value: bytes = await client.read_gatt_char(HANDLE_INIT)
-                _LOGGER.info("[%s] Read init value from handle 0x%04X: %s", self.address, HANDLE_INIT, _hex(read_value))
+                read_value: bytes = await client.read_gatt_char(h_init)
+                _LOGGER.info("[%s] Read init value from handle 0x%04X: %s", self.address, h_init, _hex(read_value))
             except (BleakError, AttributeError) as e:
                 _LOGGER.error("[%s] Failed to read init value: %s", self.address, e)
                 read_value = b""
@@ -382,7 +437,7 @@ class SolamagicBleClient:
                 _LOGGER.warning("[%s] Init value from device is all zeroes, using stored fallback: %s", self.address, _hex(init_value))
             elif read_value:
                 init_value = read_value
-                _LOGGER.info("[%s] Echoing init value back to handle 0x%04X: %s", self.address, HANDLE_INIT, _hex(init_value))
+                _LOGGER.info("[%s] Echoing init value back to handle 0x%04X: %s", self.address, h_init, _hex(init_value))
             elif fallback_init and read_value != fallback_init:
                 _LOGGER.info("[%s] Device init token changed (%s). Overriding with stored token: %s", self.address, _hex(read_value), _hex(fallback_init))
                 init_value = fallback_init
@@ -392,13 +447,11 @@ class SolamagicBleClient:
                 _LOGGER.warning("[%s] No init value read; falling back to static INIT_PAYLOAD: %s", self.address, _hex(init_value))
 
             # 4. Write the init value
-            _LOGGER.info("[%s] Writing initialization sequence to handle 0x%04X", self.address, HANDLE_INIT)
+            _LOGGER.info("[%s] Writing initialization sequence to handle 0x%04X", self.address, h_init)
             _LOGGER.debug("[%s] Init payload: %s", self.address, _hex(init_value))
 
             try:
-                await client.write_gatt_char(
-                    HANDLE_INIT, init_value, response=True
-                )
+                await client.write_gatt_char(h_init, init_value, response=True)
                 _LOGGER.info("[%s] Initialization sequence successful", self.address)
                 await asyncio.sleep(0.1)
             except (BleakError, AttributeError) as e:
@@ -422,11 +475,12 @@ class SolamagicBleClient:
         async with self._lock:
             client = await self._ensure_connected()
 
+            h_cmd = HANDLE_CMD + self._handle_offset
             for i in range(max(1, repeat)):
-                _LOGGER.debug("[%s] Write #%d to handle %#06x, resp=%s: %s", self.address, i+1, HANDLE_CMD, response, _hex(data))
+                _LOGGER.debug("[%s] Write #%d to handle %#06x, resp=%s: %s", self.address, i+1, h_cmd, response, _hex(data))
 
                 try:
-                    await client.write_gatt_char(HANDLE_CMD, data, response=response)
+                    await client.write_gatt_char(h_cmd, data, response=response)
                 except (BleakError, AttributeError) as e:
                     _LOGGER.error("[%s] Write failed on attempt %d: %s", self.address, i+1, e)
                     if i == 0:

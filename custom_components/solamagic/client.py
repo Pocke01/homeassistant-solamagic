@@ -75,36 +75,40 @@ class SolamagicClient:
         await self._save_init_token(used_init)
         await asyncio.sleep(INIT_DELAY_MS / 1000)
 
-        # Step 2: Enable notifications on 0x002F (via CCCD 0x0030)
-        # This is the first notification channel
-        _LOGGER.debug("[%s] Step 2: Enabling notifications on 0x002F (CCCD 0x0030)", self._entry.data.get("address"))
+        # Apply handle offset (detected at connection time for Model A/B support)
+        offset = self._ble.handle_offset
+        cccd_ntf1 = CCCD_NTF1 + offset
+        cccd_ntf2 = CCCD_NTF2 + offset
+        cccd_cmd  = CCCD_CMD  + offset
+
+        # Step 2: Enable notifications on NTF1 channel (CCCD offset-adjusted)
+        _LOGGER.debug("[%s] Step 2: Enabling CCCD 0x%04X (NTF1, offset=%d)", self._entry.data.get("address"), cccd_ntf1, offset)
         try:
-            await self._ble.write_cccd(CCCD_NTF1, bytes([0x01, 0x00]))
-            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), CCCD_NTF1)
+            await self._ble.write_cccd(cccd_ntf1, bytes([0x01, 0x00]))
+            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), cccd_ntf1)
         except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
-            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), CCCD_NTF1, e)
+            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), cccd_ntf1, e)
 
         await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
-        # Step 3: Enable notifications on 0x0032 (via CCCD 0x0033)
-        # This is the status/data channel
-        _LOGGER.debug("[%s] Step 3: Enabling notifications on 0x0032 (CCCD 0x0033)", self._entry.data.get("address"))
+        # Step 3: Enable notifications on NTF2 channel (CCCD offset-adjusted)
+        _LOGGER.debug("[%s] Step 3: Enabling CCCD 0x%04X (NTF2, offset=%d)", self._entry.data.get("address"), cccd_ntf2, offset)
         try:
-            await self._ble.write_cccd(CCCD_NTF2, bytes([0x01, 0x00]))
-            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), CCCD_NTF2)
+            await self._ble.write_cccd(cccd_ntf2, bytes([0x01, 0x00]))
+            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), cccd_ntf2)
         except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
-            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), CCCD_NTF2, e)
+            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), cccd_ntf2, e)
 
         await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
-        # Step 4: Enable notifications on 0x0028 (via CCCD 0x0029) - LAST!
+        # Step 4: Enable CMD notifications (CCCD offset-adjusted) - LAST!
         # This is the command channel - must be enabled last!
-        _LOGGER.debug("[%s] Step 4: Enabling notifications on 0x0028 (CCCD 0x0029) - LAST!", self._entry.data.get("address"))
+        _LOGGER.debug("[%s] Step 4: Enabling CCCD 0x%04X (CMD, offset=%d) - LAST!", self._entry.data.get("address"), cccd_cmd, offset)
         try:
-            await self._ble.write_cccd(CCCD_CMD, bytes([0x01, 0x00]))
-            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), CCCD_CMD)
+            await self._ble.write_cccd(cccd_cmd, bytes([0x01, 0x00]))
+            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), cccd_cmd)
         except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
-            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), CCCD_CMD, e)
+            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), cccd_cmd, e)
 
         await asyncio.sleep(CCCD_ENABLE_DELAY_MS * 2 / 1000)
         self._initialized = True
