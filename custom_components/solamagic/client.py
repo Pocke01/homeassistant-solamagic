@@ -198,13 +198,7 @@ class SolamagicClient:
             # OFF: Send 00 21 many times (21 commands according to sniffer)
             _LOGGER.debug("[%s] Sending OFF command (00 21) x 21", self._entry.data.get("address"))
             for i in range(CMD_OFF_REPEAT_COUNT):
-                await self._ble.write_handle_any(
-                    0x0028,
-                    CMD_OFF,
-                    response=False,
-                    repeat=1,
-                    delay_ms=0
-                )
+                await self._ble.write_handle_raw(CMD_OFF, response=False, repeat=1, delay_ms=0)
                 await asyncio.sleep(CMD_OFF_DELAY_MS / 1000)  # ~16ms delay between commands
 
             _LOGGER.info("[%s] OFF sequence complete", self._entry.data.get("address"))
@@ -226,13 +220,7 @@ class SolamagicClient:
         elif pct == 33:
             # 33%: Send 01 21 once
             _LOGGER.debug("[%s] Sending 33% command (01 21)", self._entry.data.get("address"))
-            await self._ble.write_handle_any(
-                0x0028,
-                CMD_ON_33,
-                response=False,
-                repeat=1,
-                delay_ms=0
-            )
+            await self._ble.write_handle_raw(CMD_ON_33, response=False, repeat=1, delay_ms=0)
             _LOGGER.info("[%s] 33% command sent", self._entry.data.get("address"))
 
             # Wait briefly for confirmation
@@ -252,13 +240,7 @@ class SolamagicClient:
         elif pct == 66:
             # 66%: Send 01 42 once
             _LOGGER.debug("[%s] Sending 66% command (01 42)", self._entry.data.get("address"))
-            await self._ble.write_handle_any(
-                0x0028,
-                CMD_ON_66,
-                response=False,
-                repeat=1,
-                delay_ms=0
-            )
+            await self._ble.write_handle_raw(CMD_ON_66, response=False, repeat=1, delay_ms=0)
             _LOGGER.info("[%s] 66% command sent", self._entry.data.get("address"))
 
             # Wait briefly for confirmation
@@ -278,13 +260,7 @@ class SolamagicClient:
         elif pct == 100:
             # 100%: Send 01 64 once
             _LOGGER.debug("[%s] Sending 100% command (01 64)", self._entry.data.get("address"))
-            await self._ble.write_handle_any(
-                0x0028,
-                CMD_ON_100,
-                response=False,
-                repeat=1,
-                delay_ms=0
-            )
+            await self._ble.write_handle_raw(CMD_ON_100, response=False, repeat=1, delay_ms=0)
             _LOGGER.info("[%s] 100% command sent", self._entry.data.get("address"))
 
             # Wait briefly for confirmation
