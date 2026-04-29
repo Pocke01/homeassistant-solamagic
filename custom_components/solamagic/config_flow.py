@@ -14,9 +14,11 @@ from .const import (
     CONF_NAME,
     CONF_COMMAND_CHAR,
     CONF_DEFAULT_ON_LEVEL,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_WRITE_MODE,
     CONF_DEVICE_INFO,
     CHAR_CMD_F001,
+    DEFAULT_DISCONNECT_TIMEOUT,
     format_device_name,
 )
 
@@ -291,6 +293,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_WRITE_MODE, data.get(CONF_WRITE_MODE, "handle")
                     ),
                 ): vol.In(["handle", "uuid"]),
+                vol.Optional(
+                    CONF_DISCONNECT_TIMEOUT,
+                    default=options.get(
+                        CONF_DISCONNECT_TIMEOUT,
+                        data.get(CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT),
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
             }
         )
 

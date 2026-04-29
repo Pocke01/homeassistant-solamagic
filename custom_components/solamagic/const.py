@@ -60,6 +60,8 @@ CONF_DEFAULT_ON_LEVEL = "default_on_level"
 CONF_WRITE_MODE = "write_mode"  # "handle" (recommended via proxy) or "uuid"
 CONF_INIT_TOKEN = "init_token"
 CONF_DEVICE_INFO = "device_info"  # Manufacturer, model, HW/SW versions
+CONF_DISCONNECT_TIMEOUT = "disconnect_timeout"
+DEFAULT_DISCONNECT_TIMEOUT = 180  # seconds
 
 def format_device_name(address: str) -> str:
     """

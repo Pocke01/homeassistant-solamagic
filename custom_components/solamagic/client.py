@@ -20,8 +20,10 @@ from .const import (
     CMD_ON_100,
     CMD_ON_33,
     CMD_ON_66,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_INIT_TOKEN,
     CONF_WRITE_MODE,
+    DEFAULT_DISCONNECT_TIMEOUT,
     INIT_DELAY_MS,
 )
 
@@ -34,7 +36,11 @@ class SolamagicClient:
         self._hass = hass
         self._entry = entry
         address: str = entry.data["address"]
-        self._ble = SolamagicBleClient(hass, address)
+        disconnect_timeout = entry.options.get(
+            CONF_DISCONNECT_TIMEOUT,
+            entry.data.get(CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT)
+        )
+        self._ble = SolamagicBleClient(hass, address, disconnect_timeout)
         self._cmd_char = command_char or CHAR_CMD_F001
         self._alt_char = CHAR_ALT_F002
         self._write_mode = write_mode

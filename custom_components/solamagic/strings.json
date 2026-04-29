@@ -26,7 +26,8 @@
         "data": {
           "command_char": "Command UUID",
           "default_on_level": "Default level",
-          "write_mode": "Write method"
+          "write_mode": "Write method",
+          "disconnect_timeout": "Auto-disconnect timeout (seconds)"
         }
       }
     }

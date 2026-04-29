@@ -46,7 +46,7 @@ HANDLE_INIT_CANDIDATES = [0x001F, 0x001E, 0x001D, 0x001C]
 
 
 class SolamagicBleClient:
-    def __init__(self, hass: HomeAssistant, address: str) -> None:
+    def __init__(self, hass: HomeAssistant, address: str, disconnect_timeout: int = DISCONNECT_TIMEOUT) -> None:
         self.hass = hass
         self.address = address.upper()
         self._client: BleakClientWithServiceCache | None = None
@@ -54,7 +54,7 @@ class SolamagicBleClient:
         self._status_callback: Callable[[int], None] | None = None
         self._confirmation_callback: Callable[[bytes], None] | None = None
         self._disconnect_timer: asyncio.TimerHandle | None = None
-        self._disconnect_timeout = DISCONNECT_TIMEOUT
+        self._disconnect_timeout = disconnect_timeout
         self._expected_level: int | None = None  # Expected level after command
         self._expected_level_time: float = 0  # When we set expected level
         self._handle_offset: int = 0  # Detected at first connection (0=Model A, -1=Model B)

@@ -45,12 +45,14 @@
         "data": {
           "command_char": "Kommando-UUID",
           "default_on_level": "Standard effektnivå",
-          "write_mode": "Skrivmetod"
+          "write_mode": "Skrivmetod",
+          "disconnect_timeout": "Auto-frånkoppling (sekunder)"
         },
         "data_description": {
           "command_char": "UUID för att skicka kommandon (ändra endast vid problem)",
           "default_on_level": "Vilken effektnivå som används vid påslagning",
-          "write_mode": "Metod för att skicka BLE-kommandon (handle = snabbare, uuid = kompatibel)"
+          "write_mode": "Metod för att skicka BLE-kommandon (handle = snabbare, uuid = kompatibel)",
+          "disconnect_timeout": "Hur länge anslutningen hålls öppen efter senaste kommando (30–3600s). Öka om enheten kopplar från för ofta. Standard: 180"
         }
       }
     }
