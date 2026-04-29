@@ -241,6 +241,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    @staticmethod
+    @config_entries.callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> "OptionsFlowHandler":
+        """Return the options flow handler."""
+        return OptionsFlowHandler(config_entry)
+
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for Solamagic."""
@@ -318,16 +326,3 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
 
-async def async_get_options_flow(
-    config_entry: config_entries.ConfigEntry,
-) -> OptionsFlowHandler:
-    """
-    Get the options flow handler.
-
-    Args:
-        config_entry: The config entry to get options flow for
-
-    Returns:
-        Options flow handler instance
-    """
-    return OptionsFlowHandler(config_entry)
