@@ -15,10 +15,12 @@ from .const import (
     CONF_COMMAND_CHAR,
     CONF_DEFAULT_ON_LEVEL,
     CONF_DISCONNECT_TIMEOUT,
+    CONF_POLL_INTERVAL,
     CONF_WRITE_MODE,
     CONF_DEVICE_INFO,
     CHAR_CMD_F001,
     DEFAULT_DISCONNECT_TIMEOUT,
+    DEFAULT_POLL_INTERVAL,
     format_device_name,
 )
 
@@ -298,6 +300,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     default=options.get(
                         CONF_DISCONNECT_TIMEOUT,
                         data.get(CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT),
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
+                vol.Optional(
+                    CONF_POLL_INTERVAL,
+                    default=options.get(
+                        CONF_POLL_INTERVAL,
+                        data.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
                     ),
                 ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
             }

@@ -27,7 +27,8 @@
           "command_char": "Command UUID",
           "default_on_level": "Default level",
           "write_mode": "Write method",
-          "disconnect_timeout": "Auto-disconnect timeout (seconds)"
+          "disconnect_timeout": "Auto-disconnect timeout (seconds)",
+          "poll_interval": "Status poll interval (seconds)"
         }
       }
     }

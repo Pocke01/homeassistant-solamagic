@@ -46,13 +46,15 @@
           "command_char": "Command UUID",
           "default_on_level": "Default power level",
           "write_mode": "Write method",
-          "disconnect_timeout": "Auto-disconnect timeout (seconds)"
+          "disconnect_timeout": "Auto-disconnect timeout (seconds)",
+          "poll_interval": "Status poll interval (seconds)"
         },
         "data_description": {
           "command_char": "UUID for sending commands (only change if you have issues)",
           "default_on_level": "Which power level is used when turning on",
           "write_mode": "Method for sending BLE commands (handle = faster, uuid = compatible)",
-          "disconnect_timeout": "How long to stay connected after last command (30–3600s). Increase if connection drops frequently. Default: 180"
+          "disconnect_timeout": "How long to stay connected after last command (30–3600s). Increase if connection drops frequently. Default: 180",
+          "poll_interval": "How often to connect and check heater status (30–3600s). Increase to reduce connect/disconnect cycles. Default: 60"
         }
       }
     }

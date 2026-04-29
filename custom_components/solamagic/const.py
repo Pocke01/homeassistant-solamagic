@@ -62,6 +62,8 @@ CONF_INIT_TOKEN = "init_token"
 CONF_DEVICE_INFO = "device_info"  # Manufacturer, model, HW/SW versions
 CONF_DISCONNECT_TIMEOUT = "disconnect_timeout"
 DEFAULT_DISCONNECT_TIMEOUT = 180  # seconds
+CONF_POLL_INTERVAL = "poll_interval"
+DEFAULT_POLL_INTERVAL = 60  # seconds
 
 def format_device_name(address: str) -> str:
     """

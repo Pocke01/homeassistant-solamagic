@@ -19,12 +19,9 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN, CONF_DEVICE_INFO, get_device_info
+from .const import DOMAIN, CONF_DEVICE_INFO, CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
-
-# Polling interval for status updates
-POLL_INTERVAL = timedelta(minutes=1)
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -78,8 +75,13 @@ class SolamagicPowerSensor(SensorEntity):
         self._attr_native_value = 0
         self._polling = False
         self._cancel_poll = None
+        poll_seconds = entry.options.get(
+            CONF_POLL_INTERVAL,
+            entry.data.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+        )
+        self._poll_interval = timedelta(seconds=poll_seconds)
 
-        _LOGGER.debug("[%s] Initialized power sensor: %s (poll interval=%s)", self._address, name, POLL_INTERVAL)
+        _LOGGER.debug("[%s] Initialized power sensor: %s (poll interval=%s)", self._address, name, self._poll_interval)
 
     @property
     def device_info(self):
@@ -105,7 +107,7 @@ class SolamagicPowerSensor(SensorEntity):
         self._cancel_poll = async_track_time_interval(
             self.hass,
             self._async_poll_status,
-            POLL_INTERVAL,
+            self._poll_interval,
         )
 
         # Delayed first poll to avoid startup congestion
