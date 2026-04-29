@@ -247,20 +247,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> "OptionsFlowHandler":
         """Return the options flow handler."""
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for Solamagic."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """
-        Initialize options flow.
-
-        Args:
-            config_entry: The config entry being modified
-        """
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
