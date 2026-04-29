@@ -92,7 +92,7 @@ class SolamagicPowerSensor(SensorEntity):
     def extra_state_attributes(self):
         """Return additional state attributes."""
         return {
-            "poll_interval_minutes": POLL_INTERVAL.total_seconds() / 60,
+            "poll_interval_minutes": self._poll_interval.total_seconds() / 60,
             "last_poll": getattr(self, "_last_poll", "Never"),
         }
 
