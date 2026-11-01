@@ -3,14 +3,13 @@ import logging
 import asyncio
 import binascii
 
+from typing import Callable
+
 from homeassistant.core import HomeAssistant
 
 from .bluetooth import SolamagicBleClient
 from .const import (
-    CCCD_CMD,
     CCCD_ENABLE_DELAY_MS,
-    CCCD_NTF1,
-    CCCD_NTF2,
     CHAR_ALT_F002,
     CHAR_CMD_F001,
     CMD_CONFIRMATION_DELAY_MS,
@@ -24,7 +23,6 @@ from .const import (
     CONF_INIT_TOKEN,
     CONF_WRITE_MODE,
     DEFAULT_DISCONNECT_TIMEOUT,
-    INIT_DELAY_MS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,85 +38,47 @@ class SolamagicClient:
             CONF_DISCONNECT_TIMEOUT,
             entry.data.get(CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT)
         )
-        self._ble = SolamagicBleClient(hass, address, disconnect_timeout)
-        self._cmd_char = command_char or CHAR_CMD_F001
-        self._alt_char = CHAR_ALT_F002
-        self._write_mode = write_mode
-        self._initialized = False
-
-        # Possibly stored init value from previous connection
-        self._stored_init: bytes | None = None
+        # Token stored by earlier versions (read from the device). Kept as an
+        # override; a mismatch with the computed token is logged by the BLE layer.
+        stored_token: bytes | None = None
         init_hex = entry.data.get(CONF_INIT_TOKEN)
         if init_hex:
             try:
-                self._stored_init = binascii.unhexlify(init_hex)
+                stored_token = binascii.unhexlify(init_hex)
             except Exception:
-                self._stored_init = None
+                stored_token = None
+        self._ble = SolamagicBleClient(hass, address, disconnect_timeout, stored_token)
+        self._cmd_char = command_char or CHAR_CMD_F001
+        self._alt_char = CHAR_ALT_F002
+        self._write_mode = write_mode
+        self._reappear_listeners: list[Callable[[], None]] = []
+
+    def add_reappear_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` when the heater is seen again after being away."""
+        self._reappear_listeners.append(listener)
+
+        def _remove() -> None:
+            if listener in self._reappear_listeners:
+                self._reappear_listeners.remove(listener)
+
+        return _remove
+
+    def notify_reappeared(self) -> None:
+        """Tell listeners (e.g. the sensor) to refresh now."""
+        for listener in list(self._reappear_listeners):
+            try:
+                listener()
+            except Exception as err:  # Broad catch OK: user callback
+                _LOGGER.error("[%s] Reappear listener error: %s", self._entry.data.get("address"), err)
 
     async def _ensure_initialized(self) -> None:
+        """Make sure the link is connected and unlocked.
+
+        The unlock (token write + notifications) is tied to the BLE connection
+        itself, so a dropped link - including a heater losing power - can never
+        leave a stale "initialised" flag behind.
         """
-        CRITICAL INITIALIZATION SEQUENCE - based on sniffer analysis!
-
-        This sequence must be run ONCE per connection in exactly this order:
-
-        1. Write initialization payload to handle 0x001F
-        2. Enable CCCD on 0x0030 (notifications for 0x002F)
-        3. Enable CCCD on 0x0033 (notifications for 0x0032)
-        4. Enable CCCD on 0x0029 (notifications for 0x0028) - LAST!
-
-        This order is CRITICAL! Heatlink uses exactly this sequence.
-        """
-        if self._initialized:
-            return
-
-        _LOGGER.info("[%s] Running initialization sequence...", self._entry.data.get("address"))
-
-        # Step 1: Write initialization payload to 0x001F
-        # This "unlocks" the device for commands
-        _LOGGER.debug("[%s] Step 1: Writing initialization payload to 0x001F", self._entry.data.get("address"))
-        used_init = await self._ble.write_init_sequence(self._stored_init)
-        # If we got a new (non-zero) init value → save it
-        await self._save_init_token(used_init)
-        await asyncio.sleep(INIT_DELAY_MS / 1000)
-
-        # Apply handle offset (detected at connection time for Model A/B support)
-        offset = self._ble.handle_offset
-        cccd_ntf1 = CCCD_NTF1 + offset
-        cccd_ntf2 = CCCD_NTF2 + offset
-        cccd_cmd  = CCCD_CMD  + offset
-
-        # Step 2: Enable notifications on NTF1 channel (CCCD offset-adjusted)
-        _LOGGER.debug("[%s] Step 2: Enabling CCCD 0x%04X (NTF1, offset=%d)", self._entry.data.get("address"), cccd_ntf1, offset)
-        try:
-            await self._ble.write_cccd(cccd_ntf1, bytes([0x01, 0x00]))
-            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), cccd_ntf1)
-        except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
-            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), cccd_ntf1, e)
-
-        await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
-
-        # Step 3: Enable notifications on NTF2 channel (CCCD offset-adjusted)
-        _LOGGER.debug("[%s] Step 3: Enabling CCCD 0x%04X (NTF2, offset=%d)", self._entry.data.get("address"), cccd_ntf2, offset)
-        try:
-            await self._ble.write_cccd(cccd_ntf2, bytes([0x01, 0x00]))
-            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), cccd_ntf2)
-        except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
-            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), cccd_ntf2, e)
-
-        await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
-
-        # Step 4: Enable CMD notifications (CCCD offset-adjusted) - LAST!
-        # This is the command channel - must be enabled last!
-        _LOGGER.debug("[%s] Step 4: Enabling CCCD 0x%04X (CMD, offset=%d) - LAST!", self._entry.data.get("address"), cccd_cmd, offset)
-        try:
-            await self._ble.write_cccd(cccd_cmd, bytes([0x01, 0x00]))
-            _LOGGER.debug("[%s] CCCD 0x%04X enabled (notifications)", self._entry.data.get("address"), cccd_cmd)
-        except Exception as e:  # Broad catch OK: CCCD optional, log and continue init
-            _LOGGER.warning("[%s] Could not enable CCCD 0x%04X: %s", self._entry.data.get("address"), cccd_cmd, e)
-
-        await asyncio.sleep(CCCD_ENABLE_DELAY_MS * 2 / 1000)
-        self._initialized = True
-        _LOGGER.info("[%s] Initialization sequence complete!", self._entry.data.get("address"))
+        await self._ble.ensure_ready()
 
     async def _wait_for_confirmation(self, expected_cmd: bytes, timeout: float = 1.0) -> bool:
         """
@@ -219,15 +179,15 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(0)
-                    _LOGGER.info("[%s] Updated status to 0% (OFF confirmed)", self._entry.data.get("address"))
+                    _LOGGER.info("[%s] Updated status to 0%% (OFF confirmed)", self._entry.data.get("address"))
                 except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
 
         elif pct == 33:
             # 33%: Send 01 21 once
-            _LOGGER.debug("[%s] Sending 33% command (01 21)", self._entry.data.get("address"))
+            _LOGGER.debug("[%s] Sending 33%% command (01 21)", self._entry.data.get("address"))
             await self._ble.write_handle_raw(CMD_ON_33, response=False, repeat=1, delay_ms=0)
-            _LOGGER.info("[%s] 33% command sent", self._entry.data.get("address"))
+            _LOGGER.info("[%s] 33%% command sent", self._entry.data.get("address"))
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
@@ -239,15 +199,15 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(33)
-                    _LOGGER.info("[%s] Updated status to 33% (command confirmed)", self._entry.data.get("address"))
+                    _LOGGER.info("[%s] Updated status to 33%% (command confirmed)", self._entry.data.get("address"))
                 except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
 
         elif pct == 66:
             # 66%: Send 01 42 once
-            _LOGGER.debug("[%s] Sending 66% command (01 42)", self._entry.data.get("address"))
+            _LOGGER.debug("[%s] Sending 66%% command (01 42)", self._entry.data.get("address"))
             await self._ble.write_handle_raw(CMD_ON_66, response=False, repeat=1, delay_ms=0)
-            _LOGGER.info("[%s] 66% command sent", self._entry.data.get("address"))
+            _LOGGER.info("[%s] 66%% command sent", self._entry.data.get("address"))
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
@@ -259,15 +219,15 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(66)
-                    _LOGGER.info("[%s] Updated status to 66% (command confirmed)", self._entry.data.get("address"))
+                    _LOGGER.info("[%s] Updated status to 66%% (command confirmed)", self._entry.data.get("address"))
                 except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
 
         elif pct == 100:
             # 100%: Send 01 64 once
-            _LOGGER.debug("[%s] Sending 100% command (01 64)", self._entry.data.get("address"))
+            _LOGGER.debug("[%s] Sending 100%% command (01 64)", self._entry.data.get("address"))
             await self._ble.write_handle_raw(CMD_ON_100, response=False, repeat=1, delay_ms=0)
-            _LOGGER.info("[%s] 100% command sent", self._entry.data.get("address"))
+            _LOGGER.info("[%s] 100%% command sent", self._entry.data.get("address"))
 
             # Wait briefly for confirmation
             await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
@@ -279,7 +239,7 @@ class SolamagicClient:
             if self._ble._status_callback:
                 try:
                     self._ble._status_callback(100)
-                    _LOGGER.info("[%s] Updated status to 100% (command confirmed)", self._entry.data.get("address"))
+                    _LOGGER.info("[%s] Updated status to 100%% (command confirmed)", self._entry.data.get("address"))
                 except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
 
@@ -344,33 +304,6 @@ class SolamagicClient:
 
     async def disconnect(self) -> None:
         """
-        Disconnect from device.
-        Resets initialization status so it runs again on next connection.
+        Disconnect from device. Unlock runs again on the next connection.
         """
-        self._initialized = False
         await self._ble.disconnect()
-
-    async def _save_init_token(self, value: bytes) -> None:
-        """Save init value in config entry (survives restart)."""
-        if not value or all(b == 0x00 for b in value):
-            return  # we don't store zeros
-
-        hex_value = binascii.hexlify(value).decode("ascii")
-
-        # Avoid unnecessary writes
-        data = dict(self._entry.data)
-        if data.get(CONF_INIT_TOKEN) == hex_value:
-            self._stored_init = value
-            return
-
-        data[CONF_INIT_TOKEN] = hex_value
-        self._hass.config_entries.async_update_entry(
-            self._entry,
-            data=data,
-        )
-        self._stored_init = value
-        _LOGGER.info(
-            "[%s] Saving new init token: %s",
-            self._entry.data.get("address"),
-            hex_value,
-        )

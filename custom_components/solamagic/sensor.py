@@ -75,6 +75,8 @@ class SolamagicPowerSensor(SensorEntity):
         self._attr_native_value = 0
         self._polling = False
         self._cancel_poll = None
+        self._remove_reappear = None
+        self._outage_logged = False
         poll_seconds = entry.options.get(
             CONF_POLL_INTERVAL,
             entry.data.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
@@ -91,9 +93,15 @@ class SolamagicPowerSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         """Return additional state attributes."""
+        ble = self._client._ble
         return {
             "poll_interval_minutes": self._poll_interval.total_seconds() / 60,
             "last_poll": getattr(self, "_last_poll", "Never"),
+            # Advertisement diagnostics (what Home Assistant last heard from the heater)
+            "advert_connectable": ble.advert_connectable,
+            "manufacturer_data": ble.manufacturer_data,
+            "last_advertisement": ble.last_seen,
+            "heater_advertising": ble.available,
         }
 
     async def async_added_to_hass(self) -> None:
@@ -102,6 +110,9 @@ class SolamagicPowerSensor(SensorEntity):
 
         # Register callback for real-time status updates
         self._client._ble.set_status_callback(self._handle_status_update)
+
+        # Refresh as soon as the heater is heard again (e.g. after a power loss)
+        self._remove_reappear = self._client.add_reappear_listener(self._on_reappeared)
 
         # Start periodic polling
         self._cancel_poll = async_track_time_interval(
@@ -122,7 +133,18 @@ class SolamagicPowerSensor(SensorEntity):
         """Stop polling when removed."""
         if self._cancel_poll:
             self._cancel_poll()
+        if self._remove_reappear:
+            self._remove_reappear()
         await super().async_will_remove_from_hass()
+
+    @callback
+    def _on_reappeared(self) -> None:
+        """Heater is advertising again: reconnect, unlock and read status now."""
+        async def _refresh() -> None:
+            await asyncio.sleep(2)  # let the advertising settle
+            await self._async_poll_status(None)
+
+        self.hass.async_create_task(_refresh())
 
     @callback
     def _handle_status_update(self, level: int) -> None:
@@ -193,9 +215,23 @@ class SolamagicPowerSensor(SensorEntity):
             _LOGGER.debug("[%s] Disconnected after poll (allows app access)", self._address)
 
             self.async_write_ha_state()
+            if self._outage_logged:
+                _LOGGER.info("[%s] Heater is reachable again", self._address)
+            self._outage_logged = False
 
         except Exception as e:
-            _LOGGER.error("[%s] Status polling failed: %s", self._address, e)
+            if self._client._ble.available is False:
+                # Heater is not advertising (e.g. no power): expected, log once per outage.
+                if not self._outage_logged:
+                    _LOGGER.warning(
+                        "[%s] Heater is not advertising; will reconnect automatically when it returns (%s)",
+                        self._address, e,
+                    )
+                    self._outage_logged = True
+                else:
+                    _LOGGER.debug("[%s] Still unavailable: %s", self._address, e)
+            else:
+                _LOGGER.error("[%s] Status polling failed: %s", self._address, e)
 
         finally:
             self._polling = False

@@ -7,7 +7,7 @@ import logging
 import voluptuous as vol
 
 from homeassistant.components import bluetooth as ha_bluetooth
-from homeassistant.components.bluetooth.match import ADDRESS, BluetoothCallbackMatcher
+from homeassistant.components.bluetooth.match import ADDRESS, CONNECTABLE, BluetoothCallbackMatcher
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -155,44 +155,51 @@ async def async_setup_entry(
     client = SolamagicClient(hass, entry, write_mode, cmd_char)
     hass.data[DOMAIN][entry.entry_id] = client
 
-    # Register with HA's Bluetooth subsystem to keep the BLE device reference
-    # fresh with the latest advertisement data (RSSI, etc.).
+    # Register with HA's Bluetooth subsystem. connectable=False so we also see
+    # non-connectable advertisements (needed to diagnose a heater that comes back
+    # up in a state HA cannot connect to).
     @callback
     def _async_bluetooth_callback(
         service_info: ha_bluetooth.BluetoothServiceInfoBleak,
         change: ha_bluetooth.BluetoothChange,
     ) -> None:
         """Handle updated Bluetooth advertisement data."""
-        _LOGGER.debug("[%s] BT advertisement received (rssi=%s)", address, service_info.rssi)
-        client._ble.update_ble_device(service_info.device)
+        _LOGGER.debug(
+            "[%s] BT advertisement received (rssi=%s, connectable=%s)",
+            address, service_info.rssi, service_info.connectable,
+        )
+        if client._ble.update_advertisement(service_info):
+            _LOGGER.info("[%s] Heater is advertising again - refreshing", address)
+            client.notify_reappeared()
+
+    @callback
+    def _async_unavailable(service_info: ha_bluetooth.BluetoothServiceInfoBleak) -> None:
+        """The heater stopped advertising (e.g. lost power)."""
+        client._ble.mark_unavailable()
 
     entry.async_on_unload(
         ha_bluetooth.async_register_callback(
             hass,
             _async_bluetooth_callback,
-            BluetoothCallbackMatcher({ADDRESS: address}),
+            BluetoothCallbackMatcher({ADDRESS: address, CONNECTABLE: False}),
             ha_bluetooth.BluetoothScanningMode.PASSIVE,
         )
     )
-    _LOGGER.info("[%s] Registered Bluetooth advertisement callback", address)
+    entry.async_on_unload(
+        ha_bluetooth.async_track_unavailable(hass, _async_unavailable, address, connectable=True)
+    )
+    _LOGGER.info("[%s] Registered Bluetooth advertisement callbacks", address)
 
     _LOGGER.info("Setup Solamagic %s (entry_id=%s, write_mode=%s)", address, entry.entry_id, write_mode)
 
-    # --- NEW: Log init-token at setup time (from handle 0x001F) and store  ---
+    # Report the unlock token without connecting (the heater may be off at startup).
     try:
-        init_value = await client._ble.read_init_token()
-        if init_value and any(init_value):
-            hex_value = init_value.hex()
-            _LOGGER.info("[%s] Init-token read during setup from handle 0x001F: %s", address, hex_value)
-
-            # Spara i config entry om det inte redan är samma värde
-            if entry.data.get(CONF_INIT_TOKEN) != hex_value:
-                new_data = {**entry.data, CONF_INIT_TOKEN: hex_value}
-                hass.config_entries.async_update_entry(entry, data=new_data)
-                _LOGGER.info("[%s] Stored init-token in config entry: %s", address, hex_value)
-    except Exception as err:
-        _LOGGER.error("[%s] Failed to read/store init-token during setup: %s", address, err)
-    # --- END NEW ---
+        token, source = client._ble.init_token()
+        _LOGGER.info("[%s] Unlock token (%s): %s", address, source, token.hex())
+        if entry.data.get(CONF_INIT_TOKEN) != token.hex() and source == "computed":
+            _LOGGER.debug("[%s] Computed token differs from legacy stored token", address)
+    except ValueError as err:
+        _LOGGER.error("[%s] Cannot compute unlock token: %s", address, err)
 
     await hass.config_entries.async_forward_entry_setups(
         entry, PLATFORMS

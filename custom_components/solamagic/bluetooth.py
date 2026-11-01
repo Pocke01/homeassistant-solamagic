@@ -24,6 +24,13 @@ from .const import (
     STATUS_LEVEL_BYTE,
     STATUS_MIN_LENGTH,
     STATUS_POWER_BYTE,
+    CCCD_ENABLE_DELAY_MS,
+)
+from .protocol import (
+    CHAR_ENABLE_UUID,
+    SERVICE_CONFIG_UUID,
+    STANDARD_ENABLE_HANDLE,
+    compute_init_token,
 )
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,10 +53,27 @@ HANDLE_INIT_CANDIDATES = [0x001F, 0x001E, 0x001D, 0x001C]
 
 
 class SolamagicBleClient:
-    def __init__(self, hass: HomeAssistant, address: str, disconnect_timeout: int = DISCONNECT_TIMEOUT) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        address: str,
+        disconnect_timeout: int = DISCONNECT_TIMEOUT,
+        stored_token: bytes | None = None,
+    ) -> None:
         self.hass = hass
         self.address = address.upper()
+        self._stored_token = stored_token
         self._client: BleakClientWithServiceCache | None = None
+        # True only after the unlock token is written and notifications are on
+        # for the *current* connection. Reset on every disconnect.
+        self._ready = False
+        self._disconnect_listeners: list[Callable[[], None]] = []
+        self._gatt_logged = False
+        # Advertisement tracking (None = never seen since start)
+        self.available: bool | None = None
+        self.advert_connectable: bool | None = None
+        self.manufacturer_data: dict[int, str] = {}
+        self.last_seen: float | None = None
         self._lock = asyncio.Lock()
         self._status_callback: Callable[[int], None] | None = None
         self._confirmation_callback: Callable[[bytes], None] | None = None
@@ -185,12 +209,112 @@ class SolamagicBleClient:
         )
         return 0
 
+    @property
+    def ready(self) -> bool:
+        """True when the current connection is unlocked and notifying."""
+        return bool(self._ready and self._client and self._client.is_connected)
+
+    def add_disconnect_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` whenever the link drops (also unexpected drops)."""
+        self._disconnect_listeners.append(listener)
+
+        def _remove() -> None:
+            if listener in self._disconnect_listeners:
+                self._disconnect_listeners.remove(listener)
+
+        return _remove
+
+    def init_token(self) -> tuple[bytes, str]:
+        """Return (token, source) to write after connecting.
+
+        The token is derived from the address (CRC-16/ARC, as the app does).
+        A token stored by an earlier version came from the device itself, so it
+        keeps precedence - but a mismatch is logged so we learn if the rule
+        ever fails for a unit.
+        """
+        computed = compute_init_token(self.address)
+        stored = self._stored_token
+        if stored and stored != computed:
+            _LOGGER.warning(
+                "[%s] Stored init token %s does not match the token computed from the "
+                "address (%s); using the stored one. Please report this.",
+                self.address, _hex(stored), _hex(computed),
+            )
+            return stored, "stored"
+        return computed, "computed"
+
+    def _enable_handle_from_services(self, client: BleakClientWithServiceCache) -> int | None:
+        """Find the ENABLE characteristic by (service, characteristic) UUID."""
+        try:
+            service = client.services.get_service(SERVICE_CONFIG_UUID)
+            char = service.get_characteristic(CHAR_ENABLE_UUID) if service else None
+            return char.handle if char else None
+        except Exception as err:  # Broad catch OK: lookup is best-effort, falls back to probing
+            _LOGGER.debug("[%s] ENABLE lookup by UUID failed: %s", self.address, err)
+            return None
+
+    def _log_gatt_table(self, client: BleakClientWithServiceCache) -> None:
+        """Log the GATT table once per client to help verify handle/UUID mapping."""
+        if self._gatt_logged:
+            return
+        self._gatt_logged = True
+        try:
+            for service in client.services:
+                chars = ", ".join(f"{c.uuid}@{c.handle:#06x}" for c in service.characteristics)
+                _LOGGER.info("[%s] GATT service %s: %s", self.address, service.uuid, chars)
+        except Exception as err:  # Broad catch OK: purely diagnostic
+            _LOGGER.debug("[%s] Could not log GATT table: %s", self.address, err)
+
+    async def _write_init_token(self, client: BleakClientWithServiceCache) -> None:
+        """Unlock the heater. Done first, as the official app does."""
+        token, source = self.init_token()
+        h_init = STANDARD_ENABLE_HANDLE + self._handle_offset
+        _LOGGER.info("[%s] Writing %s init token to handle %#06x: %s", self.address, source, h_init, _hex(token))
+        try:
+            await client.write_gatt_char(h_init, token, response=True)
+        except (BleakError, AttributeError, ValueError) as err:
+            _LOGGER.error("[%s] Failed to write init token: %s", self.address, err)
+            raise _as_ha_error(err, "Init failed") from err
+
+    async def _start_notifications(self, client: BleakClientWithServiceCache) -> None:
+        """Enable notifications in the order the app uses (after the unlock)."""
+        for h in (HANDLE_NTF1, HANDLE_NTF2, HANDLE_CMD):
+            handle = h + self._handle_offset
+            try:
+                await client.start_notify(handle, self._notification_handler)
+                _LOGGER.info("[%s] Started notify on handle %#06x", self.address, handle)
+            except (BleakError, AttributeError, ValueError, KeyError) as err:
+                _LOGGER.warning("[%s] Could not start notify on %#06x: %s", self.address, handle, err)
+            await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
+
+    async def _drop_link(self, client: BleakClientWithServiceCache | None) -> None:
+        """Best-effort disconnect of a half-initialised connection."""
+        self._ready = False
+        try:
+            if client is not None and client.is_connected:
+                await client.disconnect()
+        except Exception as err:  # Broad catch OK: cleanup
+            _LOGGER.debug("[%s] Drop link error: %r", self.address, err)
+        if self._client is client:
+            self._client = None
+
+    async def ensure_ready(self) -> BleakClientWithServiceCache:
+        """Connect (if needed) and make sure the link is unlocked."""
+        async with self._lock:
+            return await self._ensure_connected()
+
     async def _ensure_connected(self) -> BleakClientWithServiceCache:
-        if self._client and self._client.is_connected:
+        """Return a connected, unlocked client. Never returns None.
+
+        Sequence mirrors the official app: connect -> unlock token -> notifications.
+        The heater may drop the link if it is not unlocked promptly, so nothing
+        slow (sleeps, probe reads) happens before the token write.
+        """
+        existing = self._client
+        if existing is not None and existing.is_connected and self._ready:
             # Reset timer when reusing existing connection
-            # FIX: Schedule timer OUTSIDE lock context
             self._schedule_auto_disconnect()
-            return self._client
+            return existing
 
         dev = await self._ble_device()
 
@@ -200,39 +324,52 @@ class SolamagicBleClient:
             _LOGGER.debug("[%s] close_stale_connections warning: %s", self.address, err)
 
         _LOGGER.info("[%s] Connecting...", self.address)
+        self._ready = False
 
         try:
-            self._client = await establish_connection(
+            client = await establish_connection(
                 BleakClientWithServiceCache,
                 dev,
                 self.address,
-                disconnected_callback=self._handle_disconnect
+                disconnected_callback=self._handle_disconnect,
             )
         except (BleakError, TimeoutError, OSError) as err:
-            raise _as_ha_error(err, "Bluetooth connect failed")
+            raise _as_ha_error(err, "Bluetooth connect failed") from err
 
+        self._client = client
         _LOGGER.info("[%s] Connected", self.address)
 
-        # Short pause after connection
-        await asyncio.sleep(0.3)
+        try:
+            self._log_gatt_table(client)
 
-        # Detect handle offset for this device model
-        self._handle_offset = await self._detect_handle_offset(self._client)
+            # Locate the ENABLE characteristic by UUID; probe handles only as fallback.
+            handle = self._enable_handle_from_services(client)
+            if handle is not None:
+                self._handle_offset = handle - STANDARD_ENABLE_HANDLE
+                _LOGGER.info(
+                    "[%s] ENABLE characteristic at %#06x (handle offset %d)",
+                    self.address, handle, self._handle_offset,
+                )
+            else:
+                self._handle_offset = await self._detect_handle_offset(client)
 
-        # Start notifications on offset-adjusted handles
-        for h in (HANDLE_CMD + self._handle_offset,
-                  HANDLE_NTF1 + self._handle_offset,
-                  HANDLE_NTF2 + self._handle_offset):
-            try:
-                await self._client.start_notify(h, self._notification_handler)
-                _LOGGER.info("[%s] Started notify on handle %#06x", self.address, h)
-            except (BleakError, AttributeError) as e:
-                _LOGGER.warning("[%s] Could not start notify on %#06x: %s", self.address, h, e)
+            await self._write_init_token(client)
+            await self._start_notifications(client)
+        except HomeAssistantError:
+            await self._drop_link(client)
+            raise
+        except (BleakError, TimeoutError, OSError, AttributeError) as err:
+            await self._drop_link(client)
+            raise _as_ha_error(err, "Bluetooth setup failed") from err
 
-        # FIX: Schedule timer OUTSIDE lock context (after connection established)
+        if not client.is_connected or self._client is not client:
+            # The heater dropped the link while we were setting it up.
+            await self._drop_link(client)
+            raise HomeAssistantError("Connection lost during setup")
+
+        self._ready = True
         self._schedule_auto_disconnect()
-
-        return self._client
+        return client
 
     async def read_init_token(self) -> bytes | None:
         """
@@ -387,7 +524,39 @@ class SolamagicBleClient:
         if self._disconnect_timer:
             self._disconnect_timer.cancel()
             self._disconnect_timer = None
+        self._ready = False
         self._client = None
+        for listener in list(self._disconnect_listeners):
+            try:
+                listener()
+            except Exception as err:  # Broad catch OK: user callback
+                _LOGGER.error("[%s] Disconnect listener error: %s", self.address, err)
+
+    @callback
+    def update_advertisement(self, service_info) -> bool:
+        """Record an advertisement. Returns True if the device (re)appeared as connectable."""
+        self.last_seen = time.time()
+        self.advert_connectable = bool(service_info.connectable)
+        mfr = {k: bytes(v).hex() for k, v in (service_info.manufacturer_data or {}).items()}
+        if mfr != self.manufacturer_data:
+            _LOGGER.info(
+                "[%s] Advertisement changed: connectable=%s manufacturer_data=%s",
+                self.address, self.advert_connectable, mfr,
+            )
+        self.manufacturer_data = mfr
+        if not service_info.connectable:
+            return False
+        self._cached_device = service_info.device
+        reappeared = self.available is not True
+        self.available = True
+        return reappeared
+
+    @callback
+    def mark_unavailable(self) -> None:
+        """HA reports the device as no longer seen: drop the stale device reference."""
+        _LOGGER.info("[%s] Device no longer advertising (unavailable)", self.address)
+        self.available = False
+        self._cached_device = None
 
     async def write_cccd(self, handle: int, value: bytes) -> None:
         """
@@ -405,71 +574,16 @@ class SolamagicBleClient:
             try:
                 await client.write_gatt_descriptor(handle, value)
                 _LOGGER.debug("[%s] CCCD write successful (descriptor method)", self.address)
-            except (BleakError, AttributeError) as e1:
+            except (BleakError, AttributeError, ValueError) as e1:
                 _LOGGER.debug("[%s] Descriptor write failed: %s, trying char method...", self.address, e1)
                 try:
                     await client.write_gatt_char(handle, value, response=True)
                     _LOGGER.debug("[%s] CCCD write successful (char method)", self.address)
-                except (BleakError, AttributeError) as e2:
+                except (BleakError, AttributeError, ValueError) as e2:
                     # FIX: Log warning instead of silent pass
                     _LOGGER.warning("[%s] Both CCCD write methods failed for handle %#06x: desc=%s, char=%s", self.address, handle, e1, e2
                     )
                     # Don't raise - allow initialization to continue with other CCCDs
-
-    async def write_init_sequence(self, fallback_init: bytes | None = None) -> bytes:
-        """
-        Write init sequence to the detected init handle.
-
-        Flow:
-        1. Read current value from detected HANDLE_INIT (offset-adjusted)
-        2. If value is all zeroes and we have fallback_init → use fallback
-        3. Otherwise → use the value we read
-        4. Write back the selected value
-        5. Return the bytes that were actually written
-        """
-        async with self._lock:
-            client = await self._ensure_connected()
-            h_init = HANDLE_INIT + self._handle_offset
-
-            # 1. Read current init from device
-            try:
-                read_value: bytes = await client.read_gatt_char(h_init)
-                _LOGGER.info("[%s] Read init value from handle 0x%04X: %s", self.address, h_init, _hex(read_value))
-            except (BleakError, AttributeError) as e:
-                _LOGGER.error("[%s] Failed to read init value: %s", self.address, e)
-                read_value = b""
-
-            all_zero = read_value and all(b == 0x00 for b in read_value)
-
-            # 2-3. Choose which value we should actually write
-            if all_zero and fallback_init:
-                init_value = fallback_init
-                _LOGGER.warning("[%s] Init value from device is all zeroes, using stored fallback: %s", self.address, _hex(init_value))
-            elif read_value:
-                init_value = read_value
-                _LOGGER.info("[%s] Echoing init value back to handle 0x%04X: %s", self.address, h_init, _hex(init_value))
-            elif fallback_init and read_value != fallback_init:
-                _LOGGER.info("[%s] Device init token changed (%s). Overriding with stored token: %s", self.address, _hex(read_value), _hex(fallback_init))
-                init_value = fallback_init
-            else:
-                # Last resort: use static INIT_PAYLOAD
-                init_value = INIT_PAYLOAD
-                _LOGGER.warning("[%s] No init value read; falling back to static INIT_PAYLOAD: %s", self.address, _hex(init_value))
-
-            # 4. Write the init value
-            _LOGGER.info("[%s] Writing initialization sequence to handle 0x%04X", self.address, h_init)
-            _LOGGER.debug("[%s] Init payload: %s", self.address, _hex(init_value))
-
-            try:
-                await client.write_gatt_char(h_init, init_value, response=True)
-                _LOGGER.info("[%s] Initialization sequence successful", self.address)
-                await asyncio.sleep(0.1)
-            except (BleakError, AttributeError) as e:
-                _LOGGER.error("[%s] Failed to write initialization sequence: %s", self.address, e)
-                raise _as_ha_error("Init failed", e)
-
-            # 5. Return what we used
-            return init_value
 
     async def write_handle_raw(self, data: bytes, response: bool=False,
                               repeat: int=1, delay_ms: int=100) -> None:

@@ -21,11 +21,14 @@ The integration was built by analyzing Bluetooth packet captures from the offici
    - `0x0028`: Command characteristic (power level control)
    - `0x002F` & `0x0032`: Status notification characteristics
 
-2. **Initialization Sequence:**
-   - Read current value from init handle
-   - Echo that exact value back to the same handle
-   - Enable CCCDs (Client Characteristic Configuration Descriptors) in specific order
-   - Only then can commands be sent
+2. **Initialization Sequence (since 0.6.0b1, from the decompiled app):**
+   - Right after connecting, write `FF FF FF FD <crc_lo> <crc_hi> 00 00 00` to the ENABLE
+     characteristic (service `0000e000-…`, characteristic `00000001-…`, handle 0x001F / 0x001E).
+     The CRC is CRC-16/ARC over the MAC address bytes (`D0:65:4C:8B:6C:36` -> `94 34`).
+   - Then enable notifications with `start_notify` (0x2F, 0x32, 0x28). Bleak >= 3 refuses direct
+     CCCD writes (`ValueError`), so never write 0x2902 descriptors manually.
+   - The app connects with `connectGatt(autoConnect=true)` and finds heaters via manufacturer
+     data (company id 89 / 2161), not by name or service UUID.
 
 3. **Command Protocol:**
    - 2-byte commands sent without response
@@ -316,6 +319,7 @@ This integration would not exist without:
 
 ## Version History
 
+- **0.6.0b1** - Token computed from MAC, unlock before notifications, Bleak 3 CCCD fix, connect race fix, advertisement-driven reconnect, company id 2161
 - **0.5.2** - Handle auto-detection for multi-model support
 - **0.5.1** - Added diagnostic scanner service
 - **0.5.0** - HACS submission, Danish translation

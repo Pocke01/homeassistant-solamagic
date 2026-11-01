@@ -1,0 +1,9 @@
+pytest-homeassistant-custom-component
+aiousbwatcher
+bluetooth-adapters
+bluetooth-auto-recovery
+bluetooth-data-tools
+dbus-fast
+habluetooth
+bleak-retry-connector
+pyserial
