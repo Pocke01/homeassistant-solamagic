@@ -56,3 +56,17 @@ def compute_init_token(address: str) -> bytes:
     """
     crc = crc16_arc(address_bytes(address))
     return TOKEN_PREFIX + bytes([crc & 0xFF, crc >> 8]) + b"\x00\x00\x00"
+
+
+def decode_power_level(power: int, level: int) -> int | None:
+    """Map a ``[power, level]`` pair to 0/33/66/100, or ``None`` if unknown.
+
+    Both the 2-byte frame on the command characteristic and bytes 15/16 of the
+    20-byte status notification use this encoding. With ``power == 0`` the level
+    byte only remembers the last setting, so the heater is simply off.
+    """
+    if power == 0x00:
+        return 0
+    if power == 0x01:
+        return {0x21: 33, 0x42: 66, 0x64: 100}.get(level)
+    return None

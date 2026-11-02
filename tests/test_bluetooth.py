@@ -179,3 +179,118 @@ def test_advertisement_diagnostics_recorded():
     client.update_advertisement(service_info(mfr={89: bytes.fromhex("0c00000100")}))
     assert client.manufacturer_data == {89: "0c00000100"}
     assert client.last_seen is not None
+
+
+# --- status listeners and the 2-byte command channel frame (issues #10, #14) ---------
+
+
+def test_several_status_listeners_all_receive_levels():
+    client = make_client()
+    a, b = [], []
+    client.add_status_callback(a.append)
+    client.add_status_callback(b.append)
+    client._notification_handler(None, bytearray([0x01, 0x42]))
+    assert a == [66] and b == [66]
+
+
+def test_unsubscribe_removes_only_that_listener_and_is_idempotent():
+    client = make_client()
+    a, b = [], []
+    remove_a = client.add_status_callback(a.append)
+    client.add_status_callback(b.append)
+    remove_a()
+    remove_a()
+    client._notification_handler(None, bytearray([0x01, 0x21]))
+    assert a == [] and b == [33]
+
+
+def test_raising_listener_does_not_starve_the_others(caplog):
+    client = make_client()
+    later = []
+
+    def boom(level):
+        raise RuntimeError("bad listener")
+
+    client.add_status_callback(boom)
+    client.add_status_callback(later.append)
+    client._notification_handler(None, bytearray([0x01, 0x64]))
+    assert later == [100]
+
+
+def test_listener_may_unregister_itself_while_dispatching():
+    client = make_client()
+    seen = []
+    holder = {}
+
+    def once(level):
+        seen.append(level)
+        holder["remove"]()
+
+    holder["remove"] = client.add_status_callback(once)
+    other = []
+    client.add_status_callback(other.append)
+    client._notification_handler(None, bytearray([0x01, 0x21]))
+    client._notification_handler(None, bytearray([0x01, 0x42]))
+    assert seen == [33] and other == [33, 66]
+
+
+def test_command_channel_frame_is_a_status_source():
+    """Units without characteristic 0x0032 only ever get the 2-byte frame (issue #10)."""
+    client = make_client()
+    levels = []
+    client.add_status_callback(levels.append)
+    client._notification_handler(None, bytearray([0x00, 0x42]))  # off, last level 66
+    assert levels == [0]
+
+
+def test_unknown_command_frame_is_ignored():
+    client = make_client()
+    levels = []
+    client.add_status_callback(levels.append)
+    client._notification_handler(None, bytearray([0x07, 0x07]))
+    assert levels == []
+
+
+def test_stale_frame_is_filtered_right_after_a_command():
+    client = make_client()
+    levels = []
+    client.add_status_callback(levels.append)
+    client.set_expected_level(66)
+    client._notification_handler(None, bytearray([0x01, 0x21]))  # old state arriving late
+    client._notification_handler(None, bytearray([0x01, 0x42]))
+    assert levels == [66]
+
+
+def test_twenty_byte_status_still_works():
+    client = make_client()
+    levels = []
+    client.add_status_callback(levels.append)
+    data = bytearray(20)
+    data[15], data[16] = 0x01, 0x64
+    client._notification_handler(None, data)
+    assert levels == [100]
+
+
+async def test_unit_without_status_characteristic_warns_once_and_still_works(caplog):
+    """Variant with no 0x0032 (issue #10): connection succeeds, noise is limited."""
+    client = make_client()
+
+    def factory(cb):
+        fake = FakeBleakClient(services_with_enable(0x1F), cb)
+
+        async def start_notify(handle, callback):
+            fake.calls.append(("notify", handle))
+            if handle == 0x32:
+                raise BleakError("Characteristic 50 was not found!")
+
+        fake.start_notify = start_notify
+        return fake
+
+    holder, p1, p2 = connect_with(factory)
+    with p1, p2, caplog.at_level(logging.DEBUG):
+        await client.ensure_ready()
+        assert client.ready is True
+        client._handle_disconnect(holder["fake"])
+        await client.ensure_ready()
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "0x0032" in r.getMessage()]
+    assert len(warnings) == 1

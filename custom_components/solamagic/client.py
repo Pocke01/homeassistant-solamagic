@@ -9,10 +9,8 @@ from homeassistant.core import HomeAssistant
 
 from .bluetooth import SolamagicBleClient
 from .const import (
-    CCCD_ENABLE_DELAY_MS,
     CHAR_ALT_F002,
     CHAR_CMD_F001,
-    CMD_CONFIRMATION_DELAY_MS,
     CMD_OFF,
     CMD_OFF_DELAY_MS,
     CMD_OFF_REPEAT_COUNT,
@@ -26,6 +24,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long to wait for the heater to echo a command back (seconds)
+COMMAND_CONFIRM_TIMEOUT = 1.0
 
 class SolamagicClient:
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry,
@@ -80,74 +81,21 @@ class SolamagicClient:
         """
         await self._ble.ensure_ready()
 
-    async def _wait_for_confirmation(self, expected_cmd: bytes, timeout: float = 1.0) -> bool:
-        """
-        Wait for command confirmation (2 bytes from handle 0x0028).
-
-        The heater does NOT send a separate status notification after the command.
-        It only confirms the command by sending the same bytes back.
-
-        What we get:
-        1. Send: 01 21 (33% command)
-        2. Receive confirmation: 01 21 (2 bytes)
-        3. NOTHING MORE! No status notification comes separately.
-
-        Therefore we must assume the command succeeded when we get the confirmation.
-        """
-        start_time = asyncio.get_event_loop().time()
-        confirmed = False
-
-        # Create a temporary callback that captures confirmations
-        def confirmation_checker(data: bytes):
-            nonlocal confirmed
-            if len(data) == 2 and data == expected_cmd:
-                confirmed = True
-                _LOGGER.debug("[%s] Command confirmed: %s", self._entry.data.get("address"), data.hex())
-
-        # Save old callback and set ours
-        old_callback = self._ble._confirmation_callback
-        self._ble._confirmation_callback = confirmation_checker
-
-        try:
-            # Wait for confirmation
-            while (asyncio.get_event_loop().time() - start_time) < timeout:
-                if confirmed:
-                    return True
-                await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
-
-            _LOGGER.warning("[%s] Timeout waiting for confirmation of %s", self._entry.data.get("address"), expected_cmd.hex())
-            return False
-
-        finally:
-            # Restore callback
-            self._ble._confirmation_callback = old_callback
-
-    async def set_level(self, pct: int) -> None:
+    async def set_level(self, pct: int) -> bool:
         """
         Set heater level to 0/33/66/100%.
 
-        Based on Bluetooth sniffer analysis from the xHeatlink app:
+        Commands are 2-byte Write Commands (no response) to the command
+        characteristic: 33% = 01 21, 66% = 01 42, 100% = 01 64, and OFF = 00 21
+        repeated ~21 times with ~16 ms spacing (from the sniffer).
 
-        Initialization (runs automatically on first command):
-        1. Write 0x001F: FF FF FF FD 94 34 00 00 00
-        2. Enable CCCD 0x0030: 01 00 (notifications)
-        3. Enable CCCD 0x0033: 01 00 (notifications)
-        4. Enable CCCD 0x0029: 01 00 (notifications) - LAST!
+        The only acknowledgement is the heater echoing the command back as a
+        notification. The state is therefore reported only once that echo has
+        arrived; the echo is itself a [power, level] frame, so the BLE layer has
+        already pushed the new level to the entities by then.
 
-        Command sequence:
-        - 33%:  Send 01 21 (1 command in sniffer log)
-        - 66%:  Send 01 42 (1 command)
-        - 100%: Send 01 64 (1 command)
-        - OFF:  Send 00 21 (~21 commands with ~16ms delay)
-
-        All commands use Write Command (response=False) for speed.
-
-        IMPORTANT: The heater does NOT send a separate status notification after the command!
-        It only confirms with the same bytes (2 bytes) back on handle 0x0028.
-        We must therefore assume the command succeeded and update status manually.
-
-        Args:
-            pct: Power level percentage (0, 33, 66, or 100)
+        Returns:
+            True if the heater acknowledged the command, False if it stayed silent.
 
         Raises:
             ValueError: If pct is not one of the valid values (0, 33, 66, 100)
@@ -155,93 +103,66 @@ class SolamagicClient:
         if pct not in (0, 33, 66, 100):
             raise ValueError("pct must be one of 0, 33, 66, 100")
 
-        # CRITICAL: Run initialization sequence on first command
+        # Connect and unlock (no-op when the link is already up and unlocked)
         await self._ensure_initialized()
 
-        _LOGGER.info("[%s] Setting heater to %d%%", self._entry.data.get("address"), pct)
+        address = self._entry.data.get("address")
+        _LOGGER.info("[%s] Setting heater to %d%%", address, pct)
 
-        if pct == 0:
-            # OFF: Send 00 21 many times (21 commands according to sniffer)
-            _LOGGER.debug("[%s] Sending OFF command (00 21) x 21", self._entry.data.get("address"))
-            for i in range(CMD_OFF_REPEAT_COUNT):
-                await self._ble.write_handle_raw(CMD_OFF, response=False, repeat=1, delay_ms=0)
-                await asyncio.sleep(CMD_OFF_DELAY_MS / 1000)  # ~16ms delay between commands
+        cmd, repeat = {
+            0: (CMD_OFF, CMD_OFF_REPEAT_COUNT),
+            33: (CMD_ON_33, 1),
+            66: (CMD_ON_66, 1),
+            100: (CMD_ON_100, 1),
+        }[pct]
 
-            _LOGGER.info("[%s] OFF sequence complete", self._entry.data.get("address"))
+        # Arm the stale-notification filter before writing so the echo is recognised.
+        self._ble.set_expected_level(pct)
 
-            # Wait briefly for confirmation
-            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
+        if await self._send_command_confirmed(cmd, repeat=repeat):
+            _LOGGER.info("[%s] Heater acknowledged %d%%", address, pct)
+            return True
+        else:
+            # Leave the state alone: reporting success is what makes a heater that
+            # silently ignores commands look like it works.
+            _LOGGER.warning(
+                "[%s] Heater did not acknowledge %d%% (%s) - state left unchanged",
+                address, pct, bytes(cmd).hex(),
+            )
+            return False
 
-            # Set expected level to filter stale notifications
-            self._ble.set_expected_level(0)
+    async def _send_command_confirmed(
+        self, cmd: bytes, *, repeat: int = 1, timeout: float | None = None
+    ) -> bool:
+        """
+        Write ``cmd`` and wait for the heater to echo it back.
 
-            # Update status directly (heater doesn't send separate notification)
-            if self._ble._status_callback:
-                try:
-                    self._ble._status_callback(0)
-                    _LOGGER.info("[%s] Updated status to 0%% (OFF confirmed)", self._entry.data.get("address"))
-                except Exception as e:  # Broad catch OK: user callback, log and continue
-                    _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
+        The listener is installed before the first write because the echo can
+        arrive within milliseconds. Returns True if the echo arrived in time.
+        """
+        expected = bytes(cmd)
+        confirmed = asyncio.Event()
 
-        elif pct == 33:
-            # 33%: Send 01 21 once
-            _LOGGER.debug("[%s] Sending 33%% command (01 21)", self._entry.data.get("address"))
-            await self._ble.write_handle_raw(CMD_ON_33, response=False, repeat=1, delay_ms=0)
-            _LOGGER.info("[%s] 33%% command sent", self._entry.data.get("address"))
+        def confirmation_checker(data: bytes) -> None:
+            if data == expected:
+                confirmed.set()
 
-            # Wait briefly for confirmation
-            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
-
-            # Set expected level to filter stale notifications
-            self._ble.set_expected_level(33)
-
-            # Update status directly (heater doesn't send separate notification)
-            if self._ble._status_callback:
-                try:
-                    self._ble._status_callback(33)
-                    _LOGGER.info("[%s] Updated status to 33%% (command confirmed)", self._entry.data.get("address"))
-                except Exception as e:  # Broad catch OK: user callback, log and continue
-                    _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
-
-        elif pct == 66:
-            # 66%: Send 01 42 once
-            _LOGGER.debug("[%s] Sending 66%% command (01 42)", self._entry.data.get("address"))
-            await self._ble.write_handle_raw(CMD_ON_66, response=False, repeat=1, delay_ms=0)
-            _LOGGER.info("[%s] 66%% command sent", self._entry.data.get("address"))
-
-            # Wait briefly for confirmation
-            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
-
-            # Set expected level to filter stale notifications
-            self._ble.set_expected_level(66)
-
-            # Update status directly (heater doesn't send separate notification)
-            if self._ble._status_callback:
-                try:
-                    self._ble._status_callback(66)
-                    _LOGGER.info("[%s] Updated status to 66%% (command confirmed)", self._entry.data.get("address"))
-                except Exception as e:  # Broad catch OK: user callback, log and continue
-                    _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
-
-        elif pct == 100:
-            # 100%: Send 01 64 once
-            _LOGGER.debug("[%s] Sending 100%% command (01 64)", self._entry.data.get("address"))
-            await self._ble.write_handle_raw(CMD_ON_100, response=False, repeat=1, delay_ms=0)
-            _LOGGER.info("[%s] 100%% command sent", self._entry.data.get("address"))
-
-            # Wait briefly for confirmation
-            await asyncio.sleep(CMD_CONFIRMATION_DELAY_MS / 1000)
-
-            # Set expected level to filter stale notifications
-            self._ble.set_expected_level(100)
-
-            # Update status directly (heater doesn't send separate notification)
-            if self._ble._status_callback:
-                try:
-                    self._ble._status_callback(100)
-                    _LOGGER.info("[%s] Updated status to 100%% (command confirmed)", self._entry.data.get("address"))
-                except Exception as e:  # Broad catch OK: user callback, log and continue
-                    _LOGGER.error("[%s] Status callback error: %s", self._entry.data.get("address"), e)
+        old_callback = self._ble._confirmation_callback
+        self._ble._confirmation_callback = confirmation_checker
+        try:
+            for i in range(repeat):
+                await self._ble.write_handle_raw(cmd, response=False, repeat=1, delay_ms=0)
+                if i + 1 < repeat:
+                    await asyncio.sleep(CMD_OFF_DELAY_MS / 1000)
+            try:
+                await asyncio.wait_for(
+                    confirmed.wait(), COMMAND_CONFIRM_TIMEOUT if timeout is None else timeout
+                )
+                return True
+            except asyncio.TimeoutError:
+                return False
+        finally:
+            self._ble._confirmation_callback = old_callback
 
     async def off(self) -> None:
         """

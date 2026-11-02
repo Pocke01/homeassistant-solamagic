@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import binascii
+import contextlib
 import logging
 import time
 from typing import Any, Callable
@@ -31,6 +32,7 @@ from .protocol import (
     SERVICE_CONFIG_UUID,
     STANDARD_ENABLE_HANDLE,
     compute_init_token,
+    decode_power_level,
 )
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,7 +77,9 @@ class SolamagicBleClient:
         self.manufacturer_data: dict[int, str] = {}
         self.last_seen: float | None = None
         self._lock = asyncio.Lock()
-        self._status_callback: Callable[[int], None] | None = None
+        self._status_callbacks: list[Callable[[int], None]] = []
+        self._notify_failed: set[int] = set()
+        self._last_level: int | None = None  # last level handed to listeners (log dedupe)
         self._confirmation_callback: Callable[[bytes], None] | None = None
         self._disconnect_timer: asyncio.TimerHandle | None = None
         self._disconnect_timeout = disconnect_timeout
@@ -108,14 +112,21 @@ class SolamagicBleClient:
         self._expected_level_time = time.time()
         _LOGGER.debug("[%s] Set expected level: %d%% (will ignore different values for 1 second)", self.address, level)
 
-    def set_status_callback(self, callback: Callable[[int], None]) -> None:
+    def add_status_callback(self, callback: Callable[[int], None]) -> Callable[[], None]:
         """
-        Register callback for status updates.
+        Register a listener for status updates and return a function that removes it.
 
-        Args:
-            callback: Function that accepts power level (int) as argument
+        Several consumers want status at once (climate entity, power sensor and the
+        poll's temporary collector), so this appends instead of replacing: a single
+        slot meant whoever registered last silently displaced the others.
         """
-        self._status_callback = callback
+        self._status_callbacks.append(callback)
+
+        def _remove() -> None:
+            with contextlib.suppress(ValueError):
+                self._status_callbacks.remove(callback)
+
+        return _remove
 
     def _schedule_auto_disconnect(self) -> None:
         """
@@ -284,7 +295,11 @@ class SolamagicBleClient:
                 await client.start_notify(handle, self._notification_handler)
                 _LOGGER.info("[%s] Started notify on handle %#06x", self.address, handle)
             except (BleakError, AttributeError, ValueError, KeyError) as err:
-                _LOGGER.warning("[%s] Could not start notify on %#06x: %s", self.address, handle, err)
+                # Some hardware variants have no 0x0032 (status then comes from the
+                # command channel). Warn once, not on every connection.
+                log = _LOGGER.debug if handle in self._notify_failed else _LOGGER.warning
+                self._notify_failed.add(handle)
+                log("[%s] Could not start notify on %#06x: %s", self.address, handle, err)
             await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
     async def _drop_link(self, client: BleakClientWithServiceCache | None) -> None:
@@ -423,18 +438,41 @@ class SolamagicBleClient:
 
         _LOGGER.debug("[%s] Status bytes: power=%#04x, level=%#04x", self.address, power, level)
 
-        # Map to percentage
-        if power == 0x00:
-            return 0  # OFF
-        elif power == 0x01:
-            if level == 0x21:  # 33 decimal
-                return 33
-            elif level == 0x42:  # 66 decimal
-                return 66
-            elif level == 0x64:  # 100 decimal
-                return 100
+        return decode_power_level(power, level)
 
-        return None
+    def _dispatch_level(self, level: int, source: str) -> None:
+        """
+        Hand a decoded level to all status listeners, filtering stale values.
+
+        A value that disagrees with a level we just commanded is dropped for a
+        second, so the heater's pre-command state cannot overwrite it.
+        """
+        time_since_expected = time.time() - self._expected_level_time
+
+        if (self._expected_level is not None and
+            time_since_expected < 1.0 and
+            level != self._expected_level):
+            _LOGGER.debug(
+                "Ignoring stale notification: %d%% (expected %d%%, sent %.1fs ago)",
+                level, self._expected_level, time_since_expected
+            )
+            return
+
+        # OFF is sent ~21 times and may be echoed each time: log only changes at INFO.
+        log = _LOGGER.debug if level == self._last_level else _LOGGER.info
+        log("[%s] Heater status from %s: %d%%", self.address, source, level)
+        self._last_level = level
+
+        # Clear expected level if this matches or enough time passed
+        if level == self._expected_level or time_since_expected >= 1.0:
+            self._expected_level = None
+
+        # Iterate a copy: a listener may unregister itself while being called.
+        for callback in list(self._status_callbacks):
+            try:
+                callback(level)
+            except Exception as e:  # Broad catch OK: user callback, log and continue
+                _LOGGER.error("[%s] Status callback error: %s", self.address, e)
 
     def _notification_handler(self, sender, data: bytearray) -> None:
         """
@@ -475,6 +513,13 @@ class SolamagicBleClient:
                 except Exception as e:  # Broad catch OK: user callback, log and continue
                     _LOGGER.error("[%s] Confirmation callback error: %s", self.address, e)
 
+            # The frame is [power, level], the same encoding as the 20-byte status.
+            # The heater also sends it unprompted right after connecting, which makes
+            # it the only status source on units without characteristic 0x0032.
+            level = decode_power_level(data_bytes[0], data_bytes[1])
+            if level is not None:
+                self._dispatch_level(level, "command channel")
+
         elif data_len >= 15:
             # This is status from handle 0x0032
             _LOGGER.debug("[%s] Status notification (%d bytes): %s", self.address, data_len, data_hex)
@@ -482,31 +527,7 @@ class SolamagicBleClient:
             # Parse status and notify callback
             level = self._parse_status(data_bytes)
             if level is not None:
-                # Check if we should ignore this notification
-                # (it might be stale if we just sent a command)
-                time_since_expected = time.time() - self._expected_level_time
-
-                if (self._expected_level is not None and
-                    time_since_expected < 1.0 and
-                    level != self._expected_level):
-                    _LOGGER.debug(
-                        "Ignoring stale notification: %d%% "
-                        "(expected %d%%, sent %.1fs ago)",
-                        level, self._expected_level, time_since_expected
-                    )
-                    return  # Ignore this stale notification
-
-                _LOGGER.info("[%s] Heater status from notification: %d%%", self.address, level)
-
-                # Clear expected level if this matches or enough time passed
-                if level == self._expected_level or time_since_expected >= 1.0:
-                    self._expected_level = None
-
-                if self._status_callback:
-                    try:
-                        self._status_callback(level)
-                    except Exception as e:  # Broad catch OK: user callback, log and continue
-                        _LOGGER.error("[%s] Status callback error: %s", self.address, e)
+                self._dispatch_level(level, "notification")
             else:
                 _LOGGER.debug("[%s] Could not parse level from status data", self.address)
 

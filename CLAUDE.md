@@ -319,6 +319,7 @@ This integration would not exist without:
 
 ## Version History
 
+- **0.6.0b2** - Ported from community PR #13 (storebatfar): status from the 2-byte command-channel frame (units without 0x0032), commands only reported once the heater echoes them, multiple status listeners (climate + sensor + poll)
 - **0.6.0b1** - Token computed from MAC, unlock before notifications, Bleak 3 CCCD fix, connect race fix, advertisement-driven reconnect, company id 2161
 - **0.5.2** - Handle auto-detection for multi-model support
 - **0.5.1** - Added diagnostic scanner service

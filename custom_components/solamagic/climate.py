@@ -12,7 +12,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN, CONF_DEVICE_INFO, get_device_info
 
@@ -90,9 +91,6 @@ class SolamagicClimate(ClimateEntity):
         self._attr_preset_mode = PRESET_HIGH
         self._current_level = 0
 
-        # Register callback for status updates from heater
-        self._client._ble.set_status_callback(self._handle_status_update)
-
         _LOGGER.debug("[%s] Initialized Solamagic climate entity: %s (unique_id=%s)", self._address, self._entry_title, self._attr_unique_id)
 
     @property
@@ -101,35 +99,17 @@ class SolamagicClimate(ClimateEntity):
         return get_device_info(self._address, self._entry_title, self._device_info_dict)
 
     async def async_added_to_hass(self) -> None:
-        """Set up listener for sensor state changes when added to hass."""
+        """Subscribe to heater status updates when added to hass."""
         await super().async_added_to_hass()
 
-        # Listen to power sensor state changes
-        # This ensures climate updates even after disconnect/reconnect
-        sensor_entity_id = f"sensor.{self._entry_title.lower().replace(' ', '_').replace('-', '_')}_power_level"
-
-        @callback
-        def sensor_state_changed(event):
-            """Handle sensor state change."""
-            new_state = event.data.get("new_state")
-            if new_state and new_state.state not in (None, "unknown", "unavailable"):
-                try:
-                    level = int(float(new_state.state))
-                    _LOGGER.debug("[%s] Climate updating from sensor state change: %d%%", self._address, level)
-                    self._handle_status_update(level)
-                except (ValueError, TypeError) as e:
-                    _LOGGER.debug("[%s] Could not parse sensor state: %s", self._address, e)
-
-        # Track sensor state changes
+        # Listen to the BLE layer directly. This used to mirror the power sensor's
+        # state because the single status callback slot was always won by the
+        # sensor, but the mirror guessed the sensor's entity_id from the config
+        # entry title and silently tracked a non-existent entity whenever Home
+        # Assistant chose another object_id (e.g. with an area prefix).
         self.async_on_remove(
-            async_track_state_change_event(
-                self.hass,
-                [sensor_entity_id],
-                sensor_state_changed
-            )
+            self._client._ble.add_status_callback(self._handle_status_update)
         )
-
-        _LOGGER.debug("[%s] Climate entity now listening to sensor: %s", self._address, sensor_entity_id)
 
     @property
     def available(self) -> bool:
@@ -204,6 +184,13 @@ class SolamagicClimate(ClimateEntity):
                     "state will update on next poll"
                 )
 
+    async def _set_level_acknowledged(self, level: int) -> None:
+        """Send a level and surface an error if the heater never acknowledged it."""
+        if not await self._client.set_level(level):
+            raise HomeAssistantError(
+                f"The heater did not acknowledge the {level}% command"
+            )
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """
         Set new target HVAC mode.
@@ -218,14 +205,14 @@ class SolamagicClimate(ClimateEntity):
 
         if hvac_mode == HVACMode.OFF:
             # Turn off
-            await self._client.set_level(0)
+            await self._set_level_acknowledged(0)
             self._current_level = 0
             self._attr_hvac_mode = HVACMode.OFF
 
         elif hvac_mode == HVACMode.HEAT:
             # Turn on with current preset
             level = PRESET_TO_LEVEL.get(self._attr_preset_mode, 100)
-            await self._client.set_level(level)
+            await self._set_level_acknowledged(level)
             self._current_level = level
             self._attr_hvac_mode = HVACMode.HEAT
 
@@ -247,7 +234,7 @@ class SolamagicClimate(ClimateEntity):
         level = PRESET_TO_LEVEL[preset_mode]
         _LOGGER.debug("[%s] Setting preset mode to: %s (%d%%)", self._address, preset_mode, level)
 
-        await self._client.set_level(level)
+        await self._set_level_acknowledged(level)
 
         self._current_level = level
         self._attr_preset_mode = preset_mode

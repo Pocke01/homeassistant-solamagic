@@ -36,3 +36,22 @@ def test_token_is_little_endian_crc_after_prefix():
 def test_invalid_address_raises(bad):
     with pytest.raises(ValueError):
         address_bytes(bad)
+
+
+from custom_components.solamagic.protocol import decode_power_level  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "power,level,expected",
+    [
+        (0x00, 0x21, 0),
+        (0x00, 0x64, 0),  # off, remembered level is irrelevant
+        (0x01, 0x21, 33),
+        (0x01, 0x42, 66),
+        (0x01, 0x64, 100),
+        (0x01, 0x10, None),
+        (0x02, 0x21, None),
+    ],
+)
+def test_decode_power_level(power, level, expected):
+    assert decode_power_level(power, level) == expected
