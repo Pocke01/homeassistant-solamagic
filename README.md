@@ -208,11 +208,16 @@ actions:
 
 ## Bluetooth Protocol
 
-This integration uses reverse-engineered Bluetooth protocol from the xHeatlink app:
+This integration uses the protocol of the xHeatlink app (originally reverse-engineered from
+packet captures, since 0.6.0 confirmed against the decompiled app):
 
-- **Initialization:** Sends unlock sequence to handle 0x001F
-- **Commands:** Sent to handle 0x0028 without response
-- **Status:** Received via notifications on handle 0x0032
+- **Unlock:** right after connecting, `FF FF FF FD <crc_lo> <crc_hi> 00 00 00` is written to the
+  ENABLE characteristic (service `0xE000`, characteristic `0x0001`, handle 0x001F or 0x001E).
+  The two CRC bytes are a CRC-16/ARC over the heater's Bluetooth address, so the token is
+  **calculated**, not read from the heater (`D0:65:4C:8B:6C:36` gives `FF FF FF FD 94 34 00 00 00`).
+- **Commands:** sent to handle 0x0028 without response; the heater echoes an accepted command back.
+- **Status:** the same 2-byte frame on handle 0x0028 (sent on connect and after each command),
+  plus a 20-byte notification on handle 0x0032 on units that have it.
 - **Power Levels:**
   - OFF: `00 21` (sent 21 times with 16ms delay)
   - 33%: `01 21`
@@ -220,13 +225,11 @@ This integration uses reverse-engineered Bluetooth protocol from the xHeatlink a
   - 100%: `01 64`
 
 ### Protocol Details
-The integration follows this initialization sequence:
-1. Write initialization payload to handle 0x001F
-2. Enable notifications on handle 0x002F (CCCD 0x0030)
-3. Enable notifications on handle 0x0032 (CCCD 0x0033)
-4. Enable notifications on handle 0x0028 (CCCD 0x0029)
+1. Write the unlock token to the ENABLE characteristic
+2. Start notifications on handles 0x002F, 0x0032 and 0x0028 (in that order)
 
-All commands use Write Command (no response) for faster execution.
+A level is reported only after the heater has echoed the command. Heaters are found through their
+manufacturer data (company ID 89 or 2161), also when they have just regained power.
 
 ## Troubleshooting
 
@@ -236,6 +239,19 @@ All commands use Write Command (no response) for faster execution.
 - Check that the heater is powered on and within range
 - Try restarting Home Assistant
 - Verify your device MAC address starts with `D0:65:4C:`
+
+### Heater was without power
+
+Unplugging a heater and plugging it in again needs no action: the integration notices when it
+advertises again and unlocks it on the next connection (within about a minute), and a command sent
+from Home Assistant connects immediately. You do not need to start the xHeatlink app first.
+
+### Commands are ignored although the heater connects
+
+Check the heater's firmware (shown in the debug log, handle `0x0014`). Very old firmware
+(`BTS1-000x`, used with the original Solamagic app) behaves differently; installing the
+xHeatlink app and letting it update the heater (to `BTS1-0013`) fixes this. The log then shows
+`Heater did not acknowledge ...` for each ignored command.
 
 ### Connection issues
 
@@ -329,6 +345,6 @@ For issues and feature requests, please use the [GitHub issue tracker](https://g
 
 ---
 
-**Version:** 0.3.25  
+**Version:** 0.6.0  
 **Status:** Production-ready, HACS-compatible  
 **Home Assistant:** 2024.1.0+

@@ -39,9 +39,8 @@ The integration was built by analyzing Bluetooth packet captures from the offici
    - 100%: `0x01 0x64`
 
 4. **Device-Specific Init Tokens:**
-   - Different heater units require different initialization payloads
-   - Must be read from device on first connection and saved
-   - Pattern: `FF FF FF FD [XX XX] 00 00 00` (9 bytes)
+   - Pattern `FF FF FF FD [XX XX] 00 00 00` (9 bytes); `XX XX` = CRC-16/ARC of the MAC bytes
+   - Verified on three units (94 34, 2A BA, 57 80); no reading from the device needed
 
 ### Multi-Model Support Discovery
 
@@ -118,16 +117,15 @@ Sensor & Climate Entity Update
 
 ### Initialization Sequence
 
-The exact order is critical and was discovered through packet analysis:
+Runs on every new BLE connection (state lives in `SolamagicBleClient`, reset on disconnect):
 
 ```python
-1. Write init token to handle 0x001F (or 0x001E)
-2. Enable CCCD 0x0030 (for handle 0x002F) - FIRST!
-3. Enable CCCD 0x0033 (for handle 0x0032) - SECOND!
-4. Enable CCCD 0x0029 (for handle 0x0028) - LAST!
+1. Write the computed token to the ENABLE characteristic (service 0xE000 / char 0x0001)
+2. start_notify 0x002F, then 0x0032, then 0x0028
 ```
 
-Any other order will fail. The init value must be the exact value read from the heater.
+The token is `FF FF FF FD <crc16-arc(MAC)> 00 00 00` (`protocol.py`); nothing is read from or
+saved for the device. A stored `init_token` from older versions still wins, with a warning on mismatch.
 
 ### Status Parsing
 
@@ -193,8 +191,9 @@ for handle in HANDLE_INIT_CANDIDATES:
 **Solution:** Auto-detection tries multiple handles (31, 30, 29)
 
 ### Issue: Commands don't work
-**Cause:** Init sequence not completed or wrong order  
-**Solution:** Ensure CCCDs enabled in exact order after init write
+**Cause:** Unlock not completed, or very old heater firmware (`BTS1-000x`, handle 0x001F is then a
+12-byte placeholder)  
+**Solution:** Check the log for `Heater did not acknowledge`; update the heater via the xHeatlink app
 
 ### Issue: Status not updating
 **Cause:** Notifications not properly enabled  
@@ -319,6 +318,7 @@ This integration would not exist without:
 
 ## Version History
 
+- **0.6.0** - Stable release of the 0.6.0 betas (README and docs updated)
 - **0.6.0b3** - From the 2026-11-03 power-cycle log: poll skipped while the link is already up (no false timeout warning), poll never cuts the link under a running command, advertisement INFO logging only on real changes (counter/checksum bytes ignored)
 - **0.6.0b2** - Ported from community PR #13 (storebatfar): status from the 2-byte command-channel frame (units without 0x0032), commands only reported once the heater echoes them, multiple status listeners (climate + sensor + poll)
 - **0.6.0b1** - Token computed from MAC, unlock before notifications, Bleak 3 CCCD fix, connect race fix, advertisement-driven reconnect, company id 2161
