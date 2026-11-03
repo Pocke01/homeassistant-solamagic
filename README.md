@@ -345,6 +345,6 @@ For issues and feature requests, please use the [GitHub issue tracker](https://g
 
 ---
 
-**Version:** 0.6.0  
+**Version:** 0.6.1  
 **Status:** Production-ready, HACS-compatible  
 **Home Assistant:** 2024.1.0+

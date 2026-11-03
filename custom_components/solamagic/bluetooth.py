@@ -54,6 +54,10 @@ def _hex(b: bytes) -> str:
 HANDLE_INIT_CANDIDATES = [0x001F, 0x001E, 0x001D, 0x001C]
 
 
+# Standard Device Information Service: Firmware Revision String
+FIRMWARE_REVISION_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
+
+
 def _advert_signature(mfr: dict[int, str]) -> tuple:
     """Advertisement content without the per-packet counter and checksum bytes."""
     out = []
@@ -90,6 +94,8 @@ class SolamagicBleClient:
         self._lock = asyncio.Lock()
         self._status_callbacks: list[Callable[[int], None]] = []
         self._notify_failed: set[int] = set()
+        self.firmware: str | None = None  # Firmware revision (0x2A26), refreshed on every connect
+        self._firmware_listeners: list[Callable[[str], None]] = []
         self._advert_signature: tuple | None = None
         self._last_level: int | None = None  # last level handed to listeners (log dedupe)
         self._confirmation_callback: Callable[[bytes], None] | None = None
@@ -314,6 +320,39 @@ class SolamagicBleClient:
                 log("[%s] Could not start notify on %#06x: %s", self.address, handle, err)
             await asyncio.sleep(CCCD_ENABLE_DELAY_MS / 1000)
 
+    def add_firmware_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
+        """Call ``listener(version)`` when the heater reports a new firmware revision."""
+        self._firmware_listeners.append(listener)
+
+        def _remove() -> None:
+            with contextlib.suppress(ValueError):
+                self._firmware_listeners.remove(listener)
+
+        return _remove
+
+    def _note_firmware(self, version: str) -> None:
+        """Remember the firmware revision and tell listeners when it changed."""
+        if version == self.firmware:
+            return
+        self.firmware = version
+        _LOGGER.info("[%s] Heater firmware: %s", self.address, version)
+        for listener in list(self._firmware_listeners):
+            try:
+                listener(version)
+            except Exception as err:  # Broad catch OK: user callback
+                _LOGGER.error("[%s] Firmware listener error: %s", self.address, err)
+
+    async def _read_firmware(self, client: BleakClientWithServiceCache) -> None:
+        """Best-effort read of the firmware revision; never fails the connection."""
+        try:
+            raw = await client.read_gatt_char(FIRMWARE_REVISION_UUID)
+        except (BleakError, AttributeError, ValueError, KeyError, TimeoutError, OSError) as err:
+            _LOGGER.debug("[%s] Could not read firmware revision: %s", self.address, err)
+            return
+        version = bytes(raw).decode("utf-8", errors="ignore").strip("\x00 \r\n\t")
+        if version:
+            self._note_firmware(version)
+
     async def _drop_link(self, client: BleakClientWithServiceCache | None) -> None:
         """Best-effort disconnect of a half-initialised connection."""
         self._ready = False
@@ -393,6 +432,10 @@ class SolamagicBleClient:
             # The heater dropped the link while we were setting it up.
             await self._drop_link(client)
             raise HomeAssistantError("Connection lost during setup")
+
+        # After the unlock, so it can never delay or break it. A firmware update
+        # through the xHeatlink app shows up here on the next connection.
+        await self._read_firmware(client)
 
         self._ready = True
         self._schedule_auto_disconnect()

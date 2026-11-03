@@ -18,6 +18,7 @@ from homeassistant.helpers.typing import ConfigType
 from .client import SolamagicClient
 from .const import (
     CONF_COMMAND_CHAR,
+    CONF_DEVICE_INFO,
     CONF_INIT_TOKEN,
     CONF_WRITE_MODE,
     DOMAIN,
@@ -176,6 +177,21 @@ async def async_setup_entry(
     def _async_unavailable(service_info: ha_bluetooth.BluetoothServiceInfoBleak) -> None:
         """The heater stopped advertising (e.g. lost power)."""
         client._ble.mark_unavailable()
+
+    @callback
+    def _async_firmware_changed(version: str) -> None:
+        """Keep the device registry and stored device info in step with the heater."""
+        device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, address)})
+        if device is not None and device.sw_version != version:
+            dr.async_get(hass).async_update_device(device.id, sw_version=version)
+        info = dict(entry.data.get(CONF_DEVICE_INFO) or {})
+        if info.get("sw_version") != version:
+            info["sw_version"] = version
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_DEVICE_INFO: info}
+            )
+
+    entry.async_on_unload(client._ble.add_firmware_listener(_async_firmware_changed))
 
     entry.async_on_unload(
         ha_bluetooth.async_register_callback(

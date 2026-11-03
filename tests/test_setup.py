@@ -4,6 +4,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components import bluetooth as ha_bluetooth
+from homeassistant.helpers import device_registry as dr
 from homeassistant.components.bluetooth.match import ADDRESS, CONNECTABLE
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -76,3 +77,42 @@ async def test_setup_does_not_connect(hass):
     ) as connect:
         assert await async_setup_entry(hass, entry)
     connect.assert_not_called()
+
+
+async def test_new_firmware_updates_device_registry_and_entry(hass):
+    """A heater updated through the xHeatlink app shows its new firmware without re-adding it."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"address": ADDR, "device_info": {"model": "KOCH BTS", "sw_version": "BTS1-0004"}},
+        title="Heater",
+    )
+    entry.add_to_hass(hass)
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, ADDR)},
+        sw_version="BTS1-0004",
+    )
+    with patch.object(ha_bluetooth, "async_register_callback", MagicMock(return_value=MagicMock())), patch.object(
+        ha_bluetooth, "async_track_unavailable", MagicMock(return_value=MagicMock())
+    ), patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()):
+        assert await async_setup_entry(hass, entry)
+    client = hass.data[DOMAIN][entry.entry_id]
+
+    client._ble._note_firmware("BTS1-0013")
+
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, ADDR)})
+    assert device.sw_version == "BTS1-0013"
+    assert entry.data["device_info"]["sw_version"] == "BTS1-0013"
+    assert entry.data["device_info"]["model"] == "KOCH BTS", "other device info is kept"
+
+
+async def test_firmware_without_stored_device_info_is_saved(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data={"address": ADDR}, title="Heater")
+    entry.add_to_hass(hass)
+    with patch.object(ha_bluetooth, "async_register_callback", MagicMock(return_value=MagicMock())), patch.object(
+        ha_bluetooth, "async_track_unavailable", MagicMock(return_value=MagicMock())
+    ), patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()):
+        assert await async_setup_entry(hass, entry)
+    client = hass.data[DOMAIN][entry.entry_id]
+    client._ble._note_firmware("BTS1-0013")
+    assert entry.data["device_info"] == {"sw_version": "BTS1-0013"}

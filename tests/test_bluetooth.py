@@ -14,6 +14,7 @@ from custom_components.solamagic.protocol import compute_init_token
 from .fakes import FakeBleakClient, FakeServices, service_info, services_with_enable
 
 ADDR = "D0:65:4C:8B:6C:36"
+FIRMWARE_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
 TOKEN = compute_init_token(ADDR)  # FFFFFFFD9434000000
 
 
@@ -45,8 +46,10 @@ async def test_token_written_first_then_notifications_in_app_order():
         await client.ensure_ready()
     calls = holder["fake"].calls
     assert calls[0] == ("write", 0x1F, TOKEN, True)
-    assert [c for c in calls[1:]] == [("notify", 0x2F), ("notify", 0x32), ("notify", 0x28)]
-    assert not any(c[0] == "read" for c in calls), "no read round-trip before unlocking"
+    assert [c for c in calls[1:4]] == [("notify", 0x2F), ("notify", 0x32), ("notify", 0x28)]
+    # Only the firmware revision is read, and only after the unlock and notifications
+    assert [c for c in calls[4:]] == [("read", FIRMWARE_UUID)]
+    assert not any(c[0] == "read" for c in calls[:4]), "no read round-trip before unlocking"
     assert client.ready is True
 
 
@@ -58,7 +61,7 @@ async def test_offset_comes_from_enable_characteristic_uuid():
     calls = holder["fake"].calls
     assert client.handle_offset == -1
     assert calls[0][:2] == ("write", 0x1E)
-    assert [c[1] for c in calls[1:]] == [0x2E, 0x31, 0x27]
+    assert [c[1] for c in calls[1:4]] == [0x2E, 0x31, 0x27]
 
 
 async def test_falls_back_to_probing_when_uuid_missing():
@@ -317,3 +320,73 @@ def test_routine_advertisement_changes_are_not_logged_at_info(caplog):
         client.update_advertisement(advert(0x09, b"\x03\x04", flags=0x00, level=b"\x01\x64"))
         assert "Advertisement changed" in caplog.text
     assert client.manufacturer_data[89].startswith("0c08")
+
+
+# --- firmware revision is refreshed on every connection (0.6.1) ------------------------
+
+
+def _factory_with_firmware(value: bytes | None):
+    def factory(cb):
+        fake = FakeBleakClient(services_with_enable(0x1F), cb)
+        if value is not None:
+            fake.read_values[FIRMWARE_UUID] = value
+        return fake
+
+    return factory
+
+
+async def test_firmware_is_read_after_unlock_and_listeners_hear_changes():
+    client = make_client()
+    seen = []
+    client.add_firmware_listener(seen.append)
+    holder, p1, p2 = connect_with(_factory_with_firmware(b"BTS1-0013\x00"))
+    with p1, p2:
+        await client.ensure_ready()
+    assert client.firmware == "BTS1-0013"
+    assert seen == ["BTS1-0013"]
+
+
+async def test_unchanged_firmware_does_not_notify_again():
+    client = make_client()
+    seen = []
+    client.add_firmware_listener(seen.append)
+    for _ in range(2):
+        holder, p1, p2 = connect_with(_factory_with_firmware(b"BTS1-0013"))
+        with p1, p2:
+            await client.ensure_ready()
+        client._handle_disconnect(holder["fake"])
+    assert seen == ["BTS1-0013"]
+
+
+async def test_updated_firmware_is_reported_on_next_connection():
+    client = make_client()
+    seen = []
+    client.add_firmware_listener(seen.append)
+    for version in (b"BTS1-0013", b"BTS1-0014"):
+        holder, p1, p2 = connect_with(_factory_with_firmware(version))
+        with p1, p2:
+            await client.ensure_ready()
+        client._handle_disconnect(holder["fake"])
+    assert seen == ["BTS1-0013", "BTS1-0014"]
+    assert client.firmware == "BTS1-0014"
+
+
+async def test_unreadable_firmware_never_breaks_the_connection():
+    client = make_client()
+    holder, p1, p2 = connect_with(_factory_with_firmware(None))  # read raises BleakError
+    with p1, p2:
+        await client.ensure_ready()
+    assert client.ready is True and client.firmware is None
+
+
+async def test_listener_error_does_not_break_the_connection():
+    client = make_client()
+
+    def boom(value):
+        raise RuntimeError("bad listener")
+
+    client.add_firmware_listener(boom)
+    holder, p1, p2 = connect_with(_factory_with_firmware(b"BTS1-0013"))
+    with p1, p2:
+        await client.ensure_ready()
+    assert client.ready is True

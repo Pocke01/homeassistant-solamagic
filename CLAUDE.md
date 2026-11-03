@@ -318,6 +318,7 @@ This integration would not exist without:
 
 ## Version History
 
+- **0.6.1** - Firmware revision (0x2A26) read on every connection; device registry and stored device info follow a firmware update
 - **0.6.0** - Stable release of the 0.6.0 betas (README and docs updated)
 - **0.6.0b3** - From the 2026-11-03 power-cycle log: poll skipped while the link is already up (no false timeout warning), poll never cuts the link under a running command, advertisement INFO logging only on real changes (counter/checksum bytes ignored)
 - **0.6.0b2** - Ported from community PR #13 (storebatfar): status from the 2-byte command-channel frame (units without 0x0032), commands only reported once the heater echoes them, multiple status listeners (climate + sensor + poll)
