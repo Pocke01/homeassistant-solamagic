@@ -77,3 +77,38 @@ async def test_climate_does_not_claim_success_when_heater_is_silent(hass):
     client.set_level = AsyncMock(return_value=True)
     await climate.async_set_hvac_mode(HVACMode.HEAT)
     assert climate.hvac_mode == HVACMode.HEAT
+
+
+# --- findings from the 2026-11-03 power-cycle log -------------------------------------
+
+
+async def test_poll_is_skipped_when_link_is_already_up(hass):
+    """After a command the link stays up and no status frame arrives: that is not a timeout."""
+    client, climate, sensor = make_parts(hass)
+    await sensor.async_added_to_hass()
+    client._ble._ready = True
+    client._ble._client = MagicMock(is_connected=True)
+    client._ensure_initialized = AsyncMock()
+    client.disconnect = AsyncMock()
+
+    await sensor._async_poll_status(None)
+
+    client._ensure_initialized.assert_not_awaited()
+    client.disconnect.assert_not_awaited()
+    await sensor.async_will_remove_from_hass()
+
+
+async def test_poll_does_not_cut_the_link_when_a_command_ran_meanwhile(hass):
+    client, climate, sensor = make_parts(hass)
+    await sensor.async_added_to_hass()
+    client.disconnect = AsyncMock()
+
+    async def fake_init():
+        client._mark_command()  # user sends a command while the poll is connecting
+        client._ble._notification_handler(None, bytearray([0x00, 0x21]))
+
+    client._ensure_initialized = fake_init
+    await sensor._async_poll_status(None)
+
+    client.disconnect.assert_not_awaited()
+    await sensor.async_will_remove_from_hass()

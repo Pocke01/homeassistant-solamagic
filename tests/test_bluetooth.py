@@ -294,3 +294,26 @@ async def test_unit_without_status_characteristic_warns_once_and_still_works(cap
         await client.ensure_ready()
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "0x0032" in r.getMessage()]
     assert len(warnings) == 1
+
+
+def test_routine_advertisement_changes_are_not_logged_at_info(caplog):
+    """Counter and checksum bytes change every advert; only real changes deserve INFO."""
+    client = make_client()
+    base = bytes.fromhex("0c0820037e0300000000000000002100002100002d64")
+
+    def advert(counter: int, crc: bytes, flags: int = 0x20, level: bytes = b"\x00\x21"):
+        d = bytearray(base)
+        d[2], d[5], d[16:18], d[20:22] = flags, counter, level, crc
+        return service_info(True, {89: bytes(d)})
+
+    with caplog.at_level(logging.INFO):
+        client.update_advertisement(advert(0x03, b"\x2d\x64"))
+        caplog.clear()
+        client.update_advertisement(advert(0x05, b"\xab\xcd"))  # counter + checksum only
+        assert "Advertisement changed" not in caplog.text
+        client.update_advertisement(advert(0x07, b"\x01\x02", flags=0x00))  # flags changed (power-up)
+        assert "Advertisement changed" in caplog.text
+        caplog.clear()
+        client.update_advertisement(advert(0x09, b"\x03\x04", flags=0x00, level=b"\x01\x64"))
+        assert "Advertisement changed" in caplog.text
+    assert client.manufacturer_data[89].startswith("0c08")

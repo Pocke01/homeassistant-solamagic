@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.components.sensor import (
@@ -174,7 +175,16 @@ class SolamagicPowerSensor(SensorEntity):
             _LOGGER.debug("[%s] Poll already in progress, skipping", self._address)
             return
 
+        if self._client._ble.ready:
+            # The link is already up (a command was just sent, or a service call is
+            # busy). The live notifications keep the state current and the auto-
+            # disconnect timer ends the session, so polling would only wait for a
+            # status frame that is sent on connect, time out and cut the link.
+            _LOGGER.debug("[%s] Link already up, skipping poll", self._address)
+            return
+
         self._polling = True
+        poll_started = time.monotonic()
 
         try:
             _LOGGER.debug("[%s] Polling status from heater...", self._address)
@@ -212,8 +222,13 @@ class SolamagicPowerSensor(SensorEntity):
 
             # Short delay before disconnect
             await asyncio.sleep(0.5)
-            await self._client.disconnect()
-            _LOGGER.debug("[%s] Disconnected after poll (allows app access)", self._address)
+            if self._client.last_command >= poll_started:
+                # A command used the link meanwhile; cutting it would abort that
+                # command mid-sequence (seen with the repeated OFF writes).
+                _LOGGER.debug("[%s] Command in progress, leaving the link to auto-disconnect", self._address)
+            else:
+                await self._client.disconnect()
+                _LOGGER.debug("[%s] Disconnected after poll (allows app access)", self._address)
 
             self.async_write_ha_state()
             if self._outage_logged:

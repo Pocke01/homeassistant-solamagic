@@ -54,6 +54,17 @@ def _hex(b: bytes) -> str:
 HANDLE_INIT_CANDIDATES = [0x001F, 0x001E, 0x001D, 0x001C]
 
 
+def _advert_signature(mfr: dict[int, str]) -> tuple:
+    """Advertisement content without the per-packet counter and checksum bytes."""
+    out = []
+    for company, data in sorted(mfr.items()):
+        raw = bytes.fromhex(data)
+        if company == 89 and len(raw) >= 22:
+            raw = raw[:5] + raw[6:20]
+        out.append((company, raw))
+    return tuple(out)
+
+
 class SolamagicBleClient:
     def __init__(
         self,
@@ -79,6 +90,7 @@ class SolamagicBleClient:
         self._lock = asyncio.Lock()
         self._status_callbacks: list[Callable[[int], None]] = []
         self._notify_failed: set[int] = set()
+        self._advert_signature: tuple | None = None
         self._last_level: int | None = None  # last level handed to listeners (log dedupe)
         self._confirmation_callback: Callable[[bytes], None] | None = None
         self._disconnect_timer: asyncio.TimerHandle | None = None
@@ -559,11 +571,18 @@ class SolamagicBleClient:
         self.last_seen = time.time()
         self.advert_connectable = bool(service_info.connectable)
         mfr = {k: bytes(v).hex() for k, v in (service_info.manufacturer_data or {}).items()}
-        if mfr != self.manufacturer_data:
+        # Byte 5 and the last two bytes of the heater's data change on every
+        # advertisement (counter, checksum); only the rest is worth an INFO line.
+        # A power-up shows as the flags byte dropping and the level bytes clearing.
+        signature = (self.advert_connectable, _advert_signature(mfr))
+        if signature != self._advert_signature:
             _LOGGER.info(
                 "[%s] Advertisement changed: connectable=%s manufacturer_data=%s",
                 self.address, self.advert_connectable, mfr,
             )
+        else:
+            _LOGGER.debug("[%s] Advertisement: %s", self.address, mfr)
+        self._advert_signature = signature
         self.manufacturer_data = mfr
         if not service_info.connectable:
             return False

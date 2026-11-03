@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 import asyncio
 import binascii
+import time
 
 from typing import Callable
 
@@ -53,6 +54,7 @@ class SolamagicClient:
         self._alt_char = CHAR_ALT_F002
         self._write_mode = write_mode
         self._reappear_listeners: list[Callable[[], None]] = []
+        self.last_command: float = 0.0  # time.monotonic() of the latest user command
 
     def add_reappear_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Call ``listener`` when the heater is seen again after being away."""
@@ -71,6 +73,10 @@ class SolamagicClient:
                 listener()
             except Exception as err:  # Broad catch OK: user callback
                 _LOGGER.error("[%s] Reappear listener error: %s", self._entry.data.get("address"), err)
+
+    def _mark_command(self) -> None:
+        """Remember that a command is (or was just) being sent, so polling stays out of the way."""
+        self.last_command = time.monotonic()
 
     async def _ensure_initialized(self) -> None:
         """Make sure the link is connected and unlocked.
@@ -103,6 +109,7 @@ class SolamagicClient:
         if pct not in (0, 33, 66, 100):
             raise ValueError("pct must be one of 0, 33, 66, 100")
 
+        self._mark_command()
         # Connect and unlock (no-op when the link is already up and unlocked)
         await self._ensure_initialized()
 
@@ -186,6 +193,7 @@ class SolamagicClient:
             repeat: Number of times to repeat command (default: 1)
             delay_ms: Delay between repeats in milliseconds (default: 100)
         """
+        self._mark_command()
         await self._ensure_initialized()
         await self._ble.write_handle_raw(data, response=response,
                                          repeat=repeat, delay_ms=delay_ms)
@@ -204,6 +212,7 @@ class SolamagicClient:
             repeat: Number of times to repeat command (default: 1)
             delay_ms: Delay between repeats in milliseconds (default: 100)
         """
+        self._mark_command()
         await self._ensure_initialized()
         await self._ble.write_handle_any(handle, data, response=response,
                                          repeat=repeat, delay_ms=delay_ms)
@@ -220,6 +229,7 @@ class SolamagicClient:
             data: Raw bytes to write
             response: Whether to wait for response (default: False)
         """
+        self._mark_command()
         await self._ensure_initialized()
         await self._ble.write_uuid_simple(char_uuid, data, response=response)
 
